@@ -1,0 +1,17 @@
+# SIHSUS: .dbc e .csv convertidos são grandes demais pro GitHub (limite 100 MB/arquivo)
+# manter só a pasta; os arquivos ficam locais / no Object Storage
+dados/sihsus/*
+!dados/sihsus/.gitkeep
+*.dbc
+*.zip
+
+# Credenciais e segredos — NUNCA commitar
+wallet*
+*.token
+*.pem
+credencial_real*.sql
+
+# Ambiente
+.DS_Store
+__pycache__/
+.ipynb_checkpoints/
