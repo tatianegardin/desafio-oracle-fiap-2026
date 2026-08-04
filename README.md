@@ -17,7 +17,7 @@ Referência ANS: operação saudável entre 75–85%; acima disso aumentam event
 ## Arquitetura (pipeline Oracle Cloud Always Free)
 
 ```
-DATASUS/TabNet → OCI Object Storage → ADB 23ai (Bronze → Prata → Ouro)
+DATASUS/TabNet → OCI Object Storage → ADB 26ai (Bronze → Prata → Ouro)
                   (staging, dado cru)    ├─ APEX (painel M1)
                                          ├─ K-Means via Colab (M2)
                                          └─ Select AI (M3)
@@ -43,7 +43,7 @@ analytics/        notebooks do K-Means (em construção)
 
 ## Como reproduzir
 
-1. Provisionar ADB 23ai Always Free + bucket `hospcheck-staging` no OCI
+1. Provisionar ADB 26ai Always Free + bucket `hospcheck-staging` no OCI
 2. Subir os arquivos de `dados/` no bucket sem alterá-los (fontes em `etl/fontes.md`)
 3. Executar os scripts de `sql/` na ordem: `00_credencial` (preencher usuário OCI + Auth Token — nunca commitar preenchido) → `01_bronze_ddl` → `02_bronze_load` → `03_prata_views` → `04_validacao`
 4. Conferir os resultados esperados comentados no `04_validacao.sql`
