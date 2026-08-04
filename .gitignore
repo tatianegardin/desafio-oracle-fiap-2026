@@ -10,6 +10,7 @@ wallet*
 *.token
 *.pem
 credencial_real*.sql
+.env
 
 # Ambiente
 .DS_Store
