@@ -15,7 +15,7 @@ Tatiane Lacerda Gardin (RM568830).
 quantos dias. Nenhum sistema público cruza os dois — gestores decidem alocação sem saber quais
 hospitais operam no limite.
 
-**MVP:** painel sobre Oracle ADB 23ai cruzando CNES × SIH para os ~100 hospitais SUS ativos de
+**MVP:** painel sobre Oracle ADB 26ai cruzando CNES × SIH para os ~100 hospitais SUS ativos de
 SP capital, em 3 módulos:
 - **M1** Painel de Ocupação (APEX): taxa real, semáforo, ranking, tendência
 - **M2** Benchmarking e Fatores de Pressão (K-Means): clusters + fator dominante de saturação
@@ -40,7 +40,7 @@ Semáforo (ref. ANS): <70% OK · 70–85% ATENCAO · >85% CRITICO
 ## 2. Decisão de arquitetura
 
 ```
-CSVs originais → OCI Object Storage → ADB 23ai: Bronze → Prata → Ouro → APEX / K-Means / M3
+CSVs originais → OCI Object Storage → ADB 26ai: Bronze → Prata → Ouro → APEX / K-Means / M3
 ```
 
 - **ELT, não ETL**: o dado é transformado dentro do banco. Python orquestra, SQL executa.
@@ -70,7 +70,7 @@ Carregado: TabNet out/24–mai/26 · Leitos 2025 + jan–jun/26 · RDSP jan–ma
 ## 4. Infraestrutura OCI
 
 - **Tenancy** fiaptgardin (root) · **Região** Brazil East / `sa-saopaulo-1`
-- **ADB principal:** `hospcheck` (23ai Always Free) — schema dono de tudo: **ADMIN**
+- **ADB principal:** `hospcheck` (26ai Always Free) — schema dono de tudo: **ADMIN**
 - **ADB secundário:** `hospcheck2` — criado só para isolar o bug do Select AI; descartável
 - **Bucket:** `hospcheck-staging` · namespace `gr2bf1uzkrub`
   Alguns objetos têm o prefixo "hospcheck" colado no nome (`hospcheckLeitos_2026.csv`,

@@ -2,7 +2,7 @@
 
 **Status:** Rota 1 esgotada (3 variações falharam) · **Rota 2 (Gemini) acionada** — ver `sql/09_selectai_gemini.sql`
 **Data:** 03/ago/2026 · **Afeta:** SPIKE Select AI (board #30) / módulo M3
-**Ambiente:** ADB 23ai Always Free · região sa-saopaulo-1 · patch DBMS_CLOUD `PDBCS_260724`
+**Ambiente:** ADB 26ai Always Free · região sa-saopaulo-1 · patch DBMS_CLOUD `PDBCS_260724`
 
 ## Sintoma
 
