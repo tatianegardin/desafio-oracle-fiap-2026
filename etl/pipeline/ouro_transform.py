@@ -4,6 +4,7 @@ Cria as views consumidas pelo APEX (M1), K-Means (M2) e Select AI (M3):
 
   GLD_OCUPACAO_MENSAL    taxa por hospital x mês + semáforo + tendência
   GLD_FEATURES_HOSPITAL  1 linha por hospital: features para o K-Means
+  GLD_KPI_REDE           indicadores da rede por competência (KPIs da Tela 1)
 
 Views (não tabelas): sempre refletem a Prata atual, sem recarga.
 Uso: set -a; source .env; set +a && python ouro_transform.py
@@ -87,6 +88,43 @@ SELECT o.co_cnes,
     ON h.co_cnes = o.co_cnes
   LEFT JOIN clin c   ON c.co_cnes = o.co_cnes
   LEFT JOIN cap      ON cap.cnes  = o.co_cnes"""),
+
+    ("GLD_KPI_REDE", """
+CREATE OR REPLACE VIEW gld_kpi_rede AS
+WITH universo AS (
+  SELECT DISTINCT competencia, co_cnes
+    FROM gld_ocupacao_mensal
+),
+leitos AS (
+  SELECT c.competencia, SUM(c.leitos_sus) AS leitos_sus
+    FROM slv_cnes_leitos c
+    JOIN universo u
+      ON u.competencia = c.competencia
+     AND u.co_cnes     = c.cnes
+   GROUP BY c.competencia
+),
+internacoes AS (
+  SELECT i.competencia, COUNT(*) AS internacoes
+    FROM slv_internacao i
+    JOIN universo u
+      ON u.competencia = i.competencia
+     AND u.co_cnes     = i.co_cnes
+   GROUP BY i.competencia
+)
+SELECT o.competencia,
+       TO_CHAR(TO_DATE(o.competencia,'YYYYMM'),'fmMon/YYYY')            AS competencia_label,
+       COUNT(*)                                                         AS hospitais,
+       COUNT(CASE WHEN o.semaforo = 'CRITICO' THEN 1 END)               AS criticos,
+       COUNT(CASE WHEN o.semaforo = 'ATENCAO' THEN 1 END)               AS atencao,
+       COUNT(CASE WHEN o.semaforo = 'OK'      THEN 1 END)               AS ok,
+       ROUND(100 * SUM(o.paciente_dia) / NULLIF(SUM(o.leito_dia),0), 1) AS ocupacao_rede,
+       ROUND(AVG(o.taxa_ocupacao), 1)                                   AS ocupacao_media_simples,
+       l.leitos_sus,
+       i.internacoes
+  FROM gld_ocupacao_mensal o
+  LEFT JOIN leitos      l ON l.competencia = o.competencia
+  LEFT JOIN internacoes i ON i.competencia = o.competencia
+ GROUP BY o.competencia, l.leitos_sus, i.internacoes"""),
 ]
 
 VALIDACOES = [
@@ -110,6 +148,12 @@ SELECT co_cnes, nome_estabelecimento, leitos_sus, taxa_media,
   FROM gld_features_hospital
  ORDER BY taxa_media DESC
  FETCH FIRST 5 ROWS ONLY"""),
+
+    ("KPIs da rede por competência", """
+SELECT competencia_label, hospitais, leitos_sus, internacoes,
+       ocupacao_rede, criticos, atencao, ok
+  FROM gld_kpi_rede
+ ORDER BY competencia"""),
 ]
 
 
