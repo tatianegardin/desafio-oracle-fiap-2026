@@ -234,8 +234,11 @@ SELECT co_cnes, nome_estabelecimento, tipo_unidade, leitos_sus,
        ROUND(z_gravidade, 2)    AS z_gravidade,
        ROUND(z_complexidade, 2) AS z_complexidade,
        ROUND(z_max, 2)          AS z_fator,
+       -- corte em z < 1: abaixo disso nenhuma dimensao se destaca o
+       -- suficiente dos pares — a pressao e distribuida (Multifatorial).
        CASE
-         WHEN z_max < 0.5                  THEN 'EQUILIBRADO'
+         WHEN z_max <= 0                      THEN 'SEM PRESSAO'
+         WHEN z_max < 1                       THEN 'MULTIFATORIAL'
          WHEN z_max = NVL(z_permanencia,-99)  THEN 'PERMANENCIA'
          WHEN z_max = NVL(z_gravidade,-99)    THEN 'GRAVIDADE'
          WHEN z_max = NVL(z_complexidade,-99) THEN 'COMPLEXIDADE'
@@ -243,15 +246,17 @@ SELECT co_cnes, nome_estabelecimento, tipo_unidade, leitos_sus,
        END AS fator_dominante,
        -- evidencia exibida ao lado do badge (Tela 4)
        CASE
-         WHEN z_max < 0.5                     THEN 'sem desvio relevante'
+         WHEN z_max <= 0                      THEN 'sem desvio frente aos pares'
          WHEN z_max = NVL(z_permanencia,-99)  THEN TO_CHAR(perm_media, 'FM990D0') || ' dias'
-         WHEN z_max = NVL(z_gravidade,-99)    THEN 'mort. ' || TO_CHAR(tx_mortalidade, 'FM990D0') || '%'
+         WHEN z_max = NVL(z_gravidade,-99)    THEN 'mort. ' || TO_CHAR(tx_mortalidade, 'FM990D00') || '%'
          WHEN z_max = NVL(z_complexidade,-99) THEN 'AIH R$ ' || TO_CHAR(val_medio_aih, 'FM999G999')
          ELSE TO_CHAR(total_aihs, 'FM999G999') || ' intern.'
-       END AS evidencia,
+       END
+       || CASE WHEN z_max > 0 AND z_max < 1 THEN ' (tendencia)' ELSE '' END AS evidencia,
        -- frase pronta para o card (Telas 2 e 4)
        CASE
-         WHEN z_max < 0.5 THEN 'Operacao alinhada com os pares do grupo'
+         WHEN z_max <= 0 THEN 'Abaixo da media dos pares em todas as dimensoes'
+         WHEN z_max < 1  THEN 'Pressao distribuida — nenhuma dimensao se destaca frente aos pares'
          WHEN z_max = NVL(z_permanencia,-99) THEN
               'Permanencia ' || TO_CHAR(ROUND(100*(perm_media - perm_cluster)
                  / NULLIF(perm_cluster,0))) || '% acima do grupo — gargalo na gestao de altas'
@@ -266,7 +271,8 @@ SELECT co_cnes, nome_estabelecimento, tipo_unidade, leitos_sus,
        END AS insight,
        -- recomendacao de gestao (quadro "Traducao para a gestao")
        CASE
-         WHEN z_max < 0.5                     THEN 'Monitorar'
+         WHEN z_max <= 0                      THEN 'Sem sinal de pressao assistencial'
+         WHEN z_max < 1                       THEN 'Pressao distribuida, sem causa isolada — monitorar'
          WHEN z_max = NVL(z_permanencia,-99)  THEN 'Revisar processo de alta e retaguarda'
          WHEN z_max = NVL(z_gravidade,-99)    THEN 'Avaliar papel de referencia regional'
          WHEN z_max = NVL(z_complexidade,-99) THEN 'Avaliar custo e densidade tecnologica'
