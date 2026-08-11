@@ -1,0 +1,230 @@
+# Metodologia — Clusterização e Fatores de Pressão
+
+Documentação técnica do módulo M2 (Benchmarking e Fatores de Pressão).
+Cobre os cards #21 (K-Means e escolha de K), #22 (score e gravação) e
+#39 (método de classificação do fator dominante).
+
+Implementação: `analytics/kmeans.py` (modelo) e `etl/pipeline/ouro_transform.py`
+(view `GLD_FATORES_HOSPITAL`).
+
+---
+
+## 1. Objetivo
+
+A taxa de ocupação sozinha não permite comparação justa: um hospital psiquiátrico
+com internações de 60 dias e um pronto-socorro com internações de 4 dias podem
+ambos estar a 90%, mas com causas e soluções completamente diferentes.
+
+O módulo resolve isso em duas etapas:
+
+1. **Agrupar** os hospitais por perfil assistencial (o que o hospital *é*)
+2. **Comparar** cada hospital com os pares do seu grupo, identificando qual
+   dimensão explica melhor a pressão que ele sofre (por que ele *está* saturado)
+
+---
+
+## 2. Universo analisado
+
+Partimos de 84 hospitais com leito SUS e movimento registrado em SP capital
+(jan/2025 – mai/2026, 17 competências).
+
+**Critério de atuação SUS ativa:** hospitais com `total_aihs < 300` no período
+são classificados como **atuação residual** e excluídos do modelo — restam **79**.
+
+Justificativa (não é corte arbitrário):
+
+- **Salto na distribuição**: o 5º colocado tem 257 internações, o 6º tem 800.
+  A partir daí a distribuição sobe suavemente, sem outra descontinuidade.
+- **Presença intermitente**: os 5 hospitais abaixo do corte têm 1, 5, 8, 10 e 16
+  meses com dado (de 17 possíveis); a partir do salto, praticamente todos têm os
+  17 meses completos. Não são hospitais pequenos e estáveis — são unidades com
+  atuação marginal e descontínua na rede SUS.
+- **Efeito prático**: com poucas dezenas de internações, qualquer percentual vira
+  artefato de amostra. O Hospital do Coração tem 1 internação no período inteiro;
+  o Hospital Japonês Santa Cruz tem 38 em 10 meses, gerando "97% de urgência" —
+  número que descreve um punhado de pacientes, não o perfil da instituição.
+
+Os excluídos permanecem visíveis no painel com a flag `atuacao_sus_residual = 1`
+e semáforo `RESIDUAL`; saem apenas do ranking, das médias da rede e do modelo.
+
+---
+
+## 3. Seleção de variáveis
+
+**Variáveis usadas (6, todas estruturais):**
+
+| Variável | O que representa |
+|---|---|
+| `leitos_sus` | porte da unidade |
+| `perm_media` | dias médios de internação |
+| `pct_urgencia` | proporção de internações de urgência vs. eletivas |
+| `pct_alta_complex` | proporção de procedimentos de alta complexidade |
+| `pct_diarias_uti` | intensidade de terapia intensiva |
+| `idade_media` | perfil etário da população atendida |
+
+**Variáveis deliberadamente excluídas:**
+
+- `taxa_media`, `taxa_max`, `taxa_desvio` — a taxa de ocupação é a **variável de
+  saída** que o projeto quer explicar. Usá-la também como entrada do agrupamento
+  mistura causa com efeito: os grupos passariam a ser formados por "quão cheio o
+  hospital está", e dizer depois que um hospital está acima da ocupação média do
+  seu grupo se tornaria circular.
+- `tx_mortalidade` — mesma lógica: é desfecho, não característica estrutural.
+  Aparece como **dimensão de análise** (fator Gravidade), não como critério de
+  agrupamento.
+- `meses_com_dado` — completude do dado, não característica do hospital.
+- Identificadores (`co_cnes`, nome, tipo de unidade) — sem valor preditivo.
+  `tipo_unidade` poderia entrar como variável categórica (dummies) numa segunda
+  rodada; ficou fora desta versão.
+
+**Padronização:** `StandardScaler` (média 0, desvio 1). Obrigatório porque o
+K-Means agrupa por distância euclidiana e as escalas são incomparáveis —
+`leitos_sus` vai de 4 a 1.476 e os percentuais de 0 a 100. Sem padronizar, o
+porte dominaria a distância e o agrupamento seria, na prática, por tamanho.
+
+---
+
+## 4. Escolha do número de grupos (K)
+
+Três critérios, aplicados em conjunto:
+
+| Critério | Resultado |
+|---|---|
+| Método do cotovelo | região 4–5 (a queda da inércia perde força após K=4) |
+| Silhouette | K=6 tem o melhor valor (0,401), K=4 fica próximo (0,377) |
+| Interpretabilidade | K=4 produz os únicos grupos clinicamente nomeáveis |
+
+**Decisão: K = 4.**
+
+O silhouette tende a premiar fragmentação — valores mais altos aparecem quando
+grupos pequenos e isolados se separam. Com 79 hospitais, K=6 produziria grupos de
+poucas unidades sem identidade clínica reconhecível. Como a diferença entre 0,377
+e 0,401 é pequena e o cotovelo aponta a mesma região, o desempate foi pela
+capacidade de nomear e comunicar os grupos — que é o requisito do benchmarking:
+um gestor precisa reconhecer seus pares.
+
+Nota: o silhouette de ~0,38 indica grupos existentes mas com fronteiras suaves,
+o que é esperado em dados de saúde, onde os perfis são contínuos e não categorias
+discretas. Não invalida o agrupamento; recomenda cautela ao tratá-lo como
+classificação rígida.
+
+**Reprodutibilidade:** `random_state=42` e `n_init=10` fixos. O índice numérico
+que o algoritmo atribui a cada cluster é arbitrário e pode mudar entre execuções —
+por isso os nomes são derivados do perfil (maior permanência → "Longa permanência",
+maior porte → "Grandes / ensino"), nunca de um índice fixo.
+
+---
+
+## 5. Grupos identificados
+
+| Grupo | n | Leitos SUS | Permanência | Urgência | Alta complex. | UTI |
+|---|---|---|---|---|---|---|
+| Grandes / ensino | 8 | 684 | 6,2 d | 51% | 42% | 28% |
+| Gerais / urgência | 49 | 182 | 5,6 d | 83% | 2% | 10% |
+| Pequenos especializados | 14 | 81 | 4,7 d | 30% | 41% | 10% |
+| Longa permanência | 8 | 162 | 22,6 d | 0,3% | 0% | 0% |
+
+Leitura dos grupos:
+
+- **Grandes / ensino** — complexos de referência (HC-FMUSP, ICESP, Santa Marcelina).
+  Porte muito acima da rede, alta densidade tecnológica.
+- **Gerais / urgência** — a espinha dorsal da rede municipal. Volume alto de
+  urgência, permanência curta, baixa complexidade.
+- **Pequenos especializados** — unidades de menor porte com perfil eletivo e
+  alta complexidade concentrada.
+- **Longa permanência** — psiquiatria e reabilitação. O algoritmo isolou esse
+  grupo sem nenhuma informação sobre especialidade, apenas pelo padrão de
+  permanência (22,6 dias contra ~5 dos demais) e ausência total de UTI e alta
+  complexidade. É a validação mais forte do agrupamento.
+
+---
+
+## 6. Visualização (PCA)
+
+O espaço do modelo tem 6 dimensões, impossível de desenhar. Aplicamos **PCA**
+para projetar em 2 componentes, preservando **54,3%** da variância — as
+coordenadas ficam gravadas em `GLD_CLUSTER.pca_x` / `pca_y`.
+
+**Limitação a declarar:** com ~54% da variância retida, o gráfico 2D é uma sombra
+do espaço real. Grupos que aparecem sobrepostos no desenho podem estar bem
+separados nas dimensões não representadas. O gráfico serve para ilustrar a
+estrutura, não para concluir sobre separação.
+
+---
+
+## 7. Fator dominante — método de classificação (card #39)
+
+**Método adotado: z-score dentro do cluster.** Não usamos limiar fixo.
+
+Para cada hospital, mede-se o quanto ele se afasta da média do **seu próprio
+grupo** em quatro dimensões:
+
+```
+z = (valor do hospital − média do cluster) ÷ desvio-padrão do cluster
+```
+
+| Dimensão | Métrica | Evidência exibida |
+|---|---|---|
+| Volume | `total_aihs` | nº de internações |
+| Permanência | `perm_media` | dias médios |
+| Gravidade | `tx_mortalidade` | mortalidade % |
+| Complexidade | `val_medio_aih` | valor médio da AIH (R$) |
+
+O **maior z-score** define o fator dominante. Se nenhum ultrapassa **0,5**, o
+hospital é classificado como `EQUILIBRADO` — sem esse piso, um hospital sem
+desvio relevante receberia um "fator dominante" que seria apenas ruído.
+
+**Por que z-score e não limiar fixo ou percentil:**
+
+- **Limiar fixo** (ex.: "permanência > 10 dias") não funciona entre grupos
+  heterogêneos: 10 dias é excepcional para um pronto-socorro e baixo para uma
+  unidade psiquiátrica. O mesmo número teria significados opostos.
+- **Percentil** é robusto a outliers, mas com clusters de 8 hospitais os
+  percentis ficam grosseiros demais (cada hospital representa ~12 pontos
+  percentuais) e não expressam magnitude — apenas ordem.
+- **Z-score** expressa a distância em unidades de desvio-padrão do próprio grupo,
+  é comparável entre dimensões de escalas diferentes e permite o piso de
+  relevância (0,5). A limitação é a sensibilidade a valores extremos em grupos
+  pequenos, mitigada pela exclusão dos hospitais de atuação residual.
+
+**Saídas da view `GLD_FATORES_HOSPITAL`:** além do `fator_dominante` e dos quatro
+z-scores, a view entrega o valor do hospital e a média do cluster lado a lado
+(`taxa_media`/`taxa_cluster`, `perm_media`/`perm_cluster`...), a posição no grupo
+(`rank_no_cluster` de `n_cluster`), uma `evidencia` formatada e um `insight` em
+linguagem natural.
+
+**Ressalva sobre as recomendações:** o campo `recomendacao` traduz o fator
+dominante em uma direção de investigação (ex.: permanência elevada → gestão de
+altas e retaguarda). São hipóteses de trabalho para orientar onde o gestor deve
+olhar, **não prescrições clínicas ou administrativas validadas**. A investigação
+da causa e a decisão sobre a intervenção permanecem com a gestão da unidade.
+
+---
+
+## 8. Limitações
+
+1. **Recorte temporal**: as features agregam 17 competências. Hospitais que
+   mudaram de perfil no período aparecem com a média, não com a tendência.
+2. **Silhouette moderado (0,38)**: fronteiras suaves entre grupos; hospitais
+   próximos da divisa poderiam pertencer a mais de um perfil.
+3. **PCA com 54% de variância**: a visualização 2D é parcial.
+4. **Dependência do SIH-RD**: as features clínicas (permanência, complexidade,
+   UTI, mortalidade) vêm dos microdados de internação. Competências não
+   carregadas reduzem a base de cálculo.
+5. **Ocupação acima de 100%** em alguns hospitais indica leitos subdeclarados no
+   CNES, não superlotação real. O modelo usa a taxa limitada a 100%; o painel
+   exibe o valor real com sinalização.
+
+---
+
+## 9. Como reproduzir
+
+```
+python etl/pipeline/prata_transform.py    # camada Prata
+python etl/pipeline/ouro_transform.py     # views Ouro (features)
+python analytics/kmeans.py                # modelo + GLD_CLUSTER
+```
+
+Saídas geradas: `analytics/elbow_kmeans.png`, `analytics/clusters_pca.png` e a
+tabela `GLD_CLUSTER` no banco. A view `GLD_FATORES_HOSPITAL` passa a retornar
+dados assim que a `GLD_CLUSTER` existe.
