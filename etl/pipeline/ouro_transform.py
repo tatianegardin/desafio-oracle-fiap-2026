@@ -246,37 +246,37 @@ SELECT co_cnes, nome_estabelecimento, tipo_unidade, leitos_sus,
        END AS fator_dominante,
        -- evidencia exibida ao lado do badge (Tela 4)
        CASE
-         WHEN z_max <= 0                      THEN 'sem desvio frente aos pares'
+         WHEN z_max <= 0                      THEN 'Sem desvio frente aos pares'
          WHEN z_max = NVL(z_permanencia,-99)  THEN TO_CHAR(perm_media, 'FM990D0') || ' dias'
          WHEN z_max = NVL(z_gravidade,-99)    THEN 'mort. ' || TO_CHAR(tx_mortalidade, 'FM990D00') || '%'
          WHEN z_max = NVL(z_complexidade,-99) THEN 'AIH R$ ' || TO_CHAR(val_medio_aih, 'FM999G999')
          ELSE TO_CHAR(total_aihs, 'FM999G999') || ' intern.'
        END
-       || CASE WHEN z_max > 0 AND z_max < 1 THEN ' (tendencia)' ELSE '' END AS evidencia,
+       || CASE WHEN z_max > 0 AND z_max < 1 THEN ' (tendência)' ELSE '' END AS evidencia,
        -- frase pronta para o card (Telas 2 e 4)
        CASE
-         WHEN z_max <= 0 THEN 'Abaixo da media dos pares em todas as dimensoes'
-         WHEN z_max < 1  THEN 'Pressao distribuida — nenhuma dimensao se destaca frente aos pares'
+         WHEN z_max <= 0 THEN 'Abaixo da média dos pares em todas as dimensões'
+         WHEN z_max < 1  THEN 'Pressão distribuída — nenhuma dimensão se destaca frente aos pares'
          WHEN z_max = NVL(z_permanencia,-99) THEN
-              'Permanencia ' || TO_CHAR(ROUND(100*(perm_media - perm_cluster)
-                 / NULLIF(perm_cluster,0))) || '% acima do grupo — gargalo na gestao de altas'
+              'Permanência ' || TO_CHAR(ROUND(100*(perm_media - perm_cluster)
+                 / NULLIF(perm_cluster,0))) || '% acima do grupo — gargalo na gestão de altas'
          WHEN z_max = NVL(z_gravidade,-99) THEN
               'Mortalidade ' || TO_CHAR(ROUND(100*(tx_mortalidade - mort_cluster)
                  / NULLIF(mort_cluster,0))) || '% acima do grupo — perfil de maior gravidade'
          WHEN z_max = NVL(z_complexidade,-99) THEN
-              'Custo medio por internacao ' || TO_CHAR(ROUND(100*(val_medio_aih - val_aih_cluster)
-                 / NULLIF(val_aih_cluster,0))) || '% acima do grupo — alta densidade tecnologica'
-         ELSE 'Volume de internacoes ' || TO_CHAR(ROUND(100*(total_aihs - aihs_cluster)
-                 / NULLIF(aihs_cluster,0))) || '% acima do grupo — pressao de porta de entrada'
+              'Custo médio por internação ' || TO_CHAR(ROUND(100*(val_medio_aih - val_aih_cluster)
+                 / NULLIF(val_aih_cluster,0))) || '% acima do grupo — alta densidade tecnológica'
+         ELSE 'Volume de internações ' || TO_CHAR(ROUND(100*(total_aihs - aihs_cluster)
+                 / NULLIF(aihs_cluster,0))) || '% acima do grupo — pressão de porta de entrada'
        END AS insight,
        -- recomendacao de gestao (quadro "Traducao para a gestao")
        CASE
-         WHEN z_max <= 0                      THEN 'Sem sinal de pressao assistencial'
-         WHEN z_max < 1                       THEN 'Pressao distribuida, sem causa isolada — monitorar'
+         WHEN z_max <= 0                      THEN 'Sem sinal de pressão assistencial'
+         WHEN z_max < 1                       THEN 'Pressão distribuída, sem causa isolada — monitorar'
          WHEN z_max = NVL(z_permanencia,-99)  THEN 'Revisar processo de alta e retaguarda'
-         WHEN z_max = NVL(z_gravidade,-99)    THEN 'Avaliar papel de referencia regional'
-         WHEN z_max = NVL(z_complexidade,-99) THEN 'Avaliar custo e densidade tecnologica'
-         ELSE 'Reforcar porta de entrada ou redistribuir demanda'
+         WHEN z_max = NVL(z_gravidade,-99)    THEN 'Avaliar papel de referência regional'
+         WHEN z_max = NVL(z_complexidade,-99) THEN 'Avaliar custo e densidade tecnológica'
+         ELSE 'Reforçar porta de entrada ou redistribuir demanda'
        END AS recomendacao
   FROM fator"""),
 ]
