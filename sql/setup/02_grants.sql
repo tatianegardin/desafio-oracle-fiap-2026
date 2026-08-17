@@ -31,28 +31,48 @@ GRANT SELECT ON gld_features_hospital     TO MARCO;
 GRANT SELECT ON gld_kpi_rede              TO MARCO;
 GRANT SELECT ON gld_cluster               TO MARCO;
 GRANT SELECT ON gld_fatores_hospital      TO MARCO;
+GRANT SELECT ON gld_perfil_clinico        TO MARCO;
+GRANT SELECT ON gld_diagnosticos          TO MARCO;
 
 -- ------------------------------------------------------------
--- 2. Workspace do APEX (schema HOSPCHECK_APP)
---    Regra de arquitetura: o app consome APENAS views GLD_*.
---    Os sinonimos permitem consultar sem prefixo de schema.
+-- 2. Workspace do APEX
+--
+--    ATENCAO ao nome do schema: o parsing schema da aplicacao e
+--    WKSP_HOSPCHECK (criado pelo APEX junto com o workspace), e NAO
+--    HOSPCHECK_APP — este ultimo foi criado por engano no inicio do
+--    projeto e nao e usado por nada. Conferir sempre em:
+--    App Builder > aplicacao > Edit Application Properties >
+--    Security > Parsing Schema.
+--
+--    Regra de arquitetura: o app consome APENAS views GLD_* e o
+--    pacote PKG_ASK_AI. Os sinonimos permitem chamar sem prefixo.
 -- ------------------------------------------------------------
-GRANT SELECT ON gld_ocupacao_mensal   TO hospcheck_app;
-GRANT SELECT ON gld_features_hospital TO hospcheck_app;
-GRANT SELECT ON gld_kpi_rede          TO hospcheck_app;
-GRANT SELECT ON gld_cluster           TO hospcheck_app;
-GRANT SELECT ON gld_fatores_hospital  TO hospcheck_app;
+GRANT SELECT ON gld_ocupacao_mensal   TO wksp_hospcheck;
+GRANT SELECT ON gld_features_hospital TO wksp_hospcheck;
+GRANT SELECT ON gld_kpi_rede          TO wksp_hospcheck;
+GRANT SELECT ON gld_cluster           TO wksp_hospcheck;
+GRANT SELECT ON gld_fatores_hospital  TO wksp_hospcheck;
+GRANT SELECT ON gld_perfil_clinico    TO wksp_hospcheck;
+GRANT SELECT ON gld_diagnosticos      TO wksp_hospcheck;
 
-CREATE OR REPLACE SYNONYM hospcheck_app.gld_ocupacao_mensal   FOR admin.gld_ocupacao_mensal;
-CREATE OR REPLACE SYNONYM hospcheck_app.gld_features_hospital FOR admin.gld_features_hospital;
-CREATE OR REPLACE SYNONYM hospcheck_app.gld_kpi_rede          FOR admin.gld_kpi_rede;
-CREATE OR REPLACE SYNONYM hospcheck_app.gld_cluster           FOR admin.gld_cluster;
-CREATE OR REPLACE SYNONYM hospcheck_app.gld_fatores_hospital  FOR admin.gld_fatores_hospital;
+CREATE OR REPLACE SYNONYM wksp_hospcheck.gld_ocupacao_mensal   FOR admin.gld_ocupacao_mensal;
+CREATE OR REPLACE SYNONYM wksp_hospcheck.gld_features_hospital FOR admin.gld_features_hospital;
+CREATE OR REPLACE SYNONYM wksp_hospcheck.gld_kpi_rede          FOR admin.gld_kpi_rede;
+CREATE OR REPLACE SYNONYM wksp_hospcheck.gld_cluster           FOR admin.gld_cluster;
+CREATE OR REPLACE SYNONYM wksp_hospcheck.gld_fatores_hospital  FOR admin.gld_fatores_hospital;
+CREATE OR REPLACE SYNONYM wksp_hospcheck.gld_perfil_clinico    FOR admin.gld_perfil_clinico;
+CREATE OR REPLACE SYNONYM wksp_hospcheck.gld_diagnosticos      FOR admin.gld_diagnosticos;
+
+-- Pacote da funcionalidade "Pergunte a IA" (M3). O pacote roda com
+-- privilegios do dono, entao o workspace nao precisa de acesso a
+-- CFG_AI (que guarda a chave) nem as tabelas consultadas.
+GRANT EXECUTE ON pkg_ask_ai TO wksp_hospcheck;
+CREATE OR REPLACE SYNONYM wksp_hospcheck.pkg_ask_ai FOR admin.pkg_ask_ai;
 
 -- ------------------------------------------------------------
 -- 3. Conferir o que esta concedido
 -- ------------------------------------------------------------
 -- SELECT grantee, table_name, privilege
 --   FROM user_tab_privs
---  WHERE grantee IN ('MARCO','HOSPCHECK_APP')
+--  WHERE grantee IN ('MARCO','WKSP_HOSPCHECK')
 --  ORDER BY grantee, table_name;
