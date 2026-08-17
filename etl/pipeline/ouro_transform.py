@@ -5,6 +5,8 @@ Cria as views consumidas pelo APEX (M1), K-Means (M2) e Select AI (M3):
   GLD_OCUPACAO_MENSAL    taxa por hospital x mês + semáforo + tendência
   GLD_FEATURES_HOSPITAL  1 linha por hospital: features para o K-Means
   GLD_KPI_REDE           indicadores da rede por competência (KPIs da Tela 1)
+  GLD_PERFIL_CLINICO     internações por hospital, faixa etária e capítulo da CID
+  GLD_DIAGNOSTICOS       diagnósticos mais frequentes por faixa etária
   GLD_FATORES_HOSPITAL   hospital x média do cluster, fator dominante e insight
                          (Telas 2 e 4 — depende da GLD_CLUSTER, criada por analytics/kmeans.py)
 
@@ -236,7 +238,11 @@ SELECT co_cnes, nome_estabelecimento, tipo_unidade, leitos_sus,
        ROUND(z_max, 2)          AS z_fator,
        -- corte em z < 1: abaixo disso nenhuma dimensao se destaca o
        -- suficiente dos pares — a pressao e distribuida (Multifatorial).
+       -- hospital com ocupacao abaixo da media do grupo nao esta sob
+       -- pressao: falar em "fator dominante" nesse caso confunde. O que
+       -- interessa ali e a folga (capacidade ociosa), nao a causa.
        CASE
+         WHEN taxa_media < taxa_cluster       THEN 'SEM PRESSAO'
          WHEN z_max <= 0                      THEN 'SEM PRESSAO'
          WHEN z_max < 1                       THEN 'MULTIFATORIAL'
          WHEN z_max = NVL(z_permanencia,-99)  THEN 'PERMANENCIA'
@@ -246,7 +252,9 @@ SELECT co_cnes, nome_estabelecimento, tipo_unidade, leitos_sus,
        END AS fator_dominante,
        -- evidencia exibida ao lado do badge (Tela 4)
        CASE
-         WHEN z_max <= 0                      THEN 'Sem desvio frente aos pares'
+         WHEN taxa_media < taxa_cluster       THEN TO_CHAR(ABS(ROUND(taxa_media - taxa_cluster,1)), 'FM990D0')
+                                                   || ' p.p. abaixo dos pares'
+         WHEN z_max <= 0                      THEN 'sem desvio frente aos pares'
          WHEN z_max = NVL(z_permanencia,-99)  THEN TO_CHAR(perm_media, 'FM990D0') || ' dias'
          WHEN z_max = NVL(z_gravidade,-99)    THEN 'mort. ' || TO_CHAR(tx_mortalidade, 'FM990D00') || '%'
          WHEN z_max = NVL(z_complexidade,-99) THEN 'AIH R$ ' || TO_CHAR(val_medio_aih, 'FM999G999')
@@ -255,8 +263,10 @@ SELECT co_cnes, nome_estabelecimento, tipo_unidade, leitos_sus,
        || CASE WHEN z_max > 0 AND z_max < 1 THEN ' (tendência)' ELSE '' END AS evidencia,
        -- frase pronta para o card (Telas 2 e 4)
        CASE
-         WHEN z_max <= 0 THEN 'Abaixo da média dos pares em todas as dimensões'
-         WHEN z_max < 1  THEN 'Pressão distribuída — nenhuma dimensão se destaca frente aos pares'
+         WHEN taxa_media < taxa_cluster THEN
+              'Ocupacao abaixo dos pares do grupo — ha folga de capacidade'
+         WHEN z_max <= 0 THEN 'Abaixo da media dos pares em todas as dimensoes'
+         WHEN z_max < 1  THEN 'Pressao distribuida — nenhuma dimensao se destaca frente aos pares'
          WHEN z_max = NVL(z_permanencia,-99) THEN
               'Permanência ' || TO_CHAR(ROUND(100*(perm_media - perm_cluster)
                  / NULLIF(perm_cluster,0))) || '% acima do grupo — gargalo na gestão de altas'
@@ -271,14 +281,221 @@ SELECT co_cnes, nome_estabelecimento, tipo_unidade, leitos_sus,
        END AS insight,
        -- recomendacao de gestao (quadro "Traducao para a gestao")
        CASE
-         WHEN z_max <= 0                      THEN 'Sem sinal de pressão assistencial'
-         WHEN z_max < 1                       THEN 'Pressão distribuída, sem causa isolada — monitorar'
+         WHEN taxa_media < taxa_cluster       THEN 'Capacidade ociosa — candidato a receber demanda pela regulacao'
+         WHEN z_max <= 0                      THEN 'Sem sinal de pressao assistencial'
+         WHEN z_max < 1                       THEN 'Pressao distribuida, sem causa isolada — monitorar'
          WHEN z_max = NVL(z_permanencia,-99)  THEN 'Revisar processo de alta e retaguarda'
          WHEN z_max = NVL(z_gravidade,-99)    THEN 'Avaliar papel de referência regional'
          WHEN z_max = NVL(z_complexidade,-99) THEN 'Avaliar custo e densidade tecnológica'
          ELSE 'Reforçar porta de entrada ou redistribuir demanda'
        END AS recomendacao
   FROM fator"""),
+
+    ("GLD_PERFIL_CLINICO", """
+CREATE OR REPLACE FORCE VIEW gld_perfil_clinico AS
+SELECT i.competencia,
+       i.co_cnes,
+       f.nome_estabelecimento,
+       f.tipo_unidade,
+       CASE
+         WHEN i.idade_anos <  1  THEN 'Menor de 1 ano'
+         WHEN i.idade_anos < 12  THEN 'Crianca (1 a 11)'
+         WHEN i.idade_anos < 18  THEN 'Adolescente (12 a 17)'
+         WHEN i.idade_anos < 60  THEN 'Adulto (18 a 59)'
+         WHEN i.idade_anos IS NOT NULL THEN 'Idoso (60 ou mais)'
+       END                                        AS faixa_etaria,
+       d.nr_capitulo,
+       NVL(d.ds_capitulo, 'Capitulo nao identificado') AS ds_capitulo,
+       COUNT(*)                                   AS internacoes,
+       ROUND(AVG(i.dias_perm), 1)                 AS perm_media,
+       SUM(i.dias_perm)                           AS paciente_dia,
+       SUM(i.fl_obito)                            AS obitos,
+       ROUND(100 * AVG(i.fl_obito), 2)            AS tx_mortalidade,
+       ROUND(SUM(i.val_total))                    AS valor_total,
+       ROUND(AVG(i.idade_anos), 1)                AS idade_media
+  FROM slv_internacao i
+  JOIN gld_features_hospital f
+    ON f.co_cnes = i.co_cnes
+   AND f.atuacao_sus_residual = 0
+  LEFT JOIN dim_cid d
+    ON d.co_cid = i.cid_principal
+ GROUP BY i.competencia, i.co_cnes, f.nome_estabelecimento, f.tipo_unidade,
+          CASE
+            WHEN i.idade_anos <  1  THEN 'Menor de 1 ano'
+            WHEN i.idade_anos < 12  THEN 'Crianca (1 a 11)'
+            WHEN i.idade_anos < 18  THEN 'Adolescente (12 a 17)'
+            WHEN i.idade_anos < 60  THEN 'Adulto (18 a 59)'
+            WHEN i.idade_anos IS NOT NULL THEN 'Idoso (60 ou mais)'
+          END,
+          d.nr_capitulo, d.ds_capitulo"""),
+
+    ("GLD_DIAGNOSTICOS", """
+CREATE OR REPLACE FORCE VIEW gld_diagnosticos AS
+SELECT CASE
+         WHEN i.idade_anos <  1  THEN 'Menor de 1 ano'
+         WHEN i.idade_anos < 12  THEN 'Crianca (1 a 11)'
+         WHEN i.idade_anos < 18  THEN 'Adolescente (12 a 17)'
+         WHEN i.idade_anos < 60  THEN 'Adulto (18 a 59)'
+         WHEN i.idade_anos IS NOT NULL THEN 'Idoso (60 ou mais)'
+       END                                        AS faixa_etaria,
+       i.cid_principal                            AS co_cid,
+       NVL(d.ds_cid_abrev, 'Nao identificado')    AS ds_cid,
+       NVL(d.ds_capitulo, 'Capitulo nao identificado') AS ds_capitulo,
+       COUNT(*)                                   AS internacoes,
+       ROUND(AVG(i.dias_perm), 1)                 AS perm_media,
+       SUM(i.fl_obito)                            AS obitos,
+       ROUND(100 * AVG(i.fl_obito), 2)            AS tx_mortalidade,
+       ROUND(AVG(i.idade_anos), 1)                AS idade_media,
+       COUNT(DISTINCT i.co_cnes)                  AS hospitais
+  FROM slv_internacao i
+  JOIN gld_features_hospital f
+    ON f.co_cnes = i.co_cnes
+   AND f.atuacao_sus_residual = 0
+  LEFT JOIN dim_cid d
+    ON d.co_cid = i.cid_principal
+ GROUP BY CASE
+            WHEN i.idade_anos <  1  THEN 'Menor de 1 ano'
+            WHEN i.idade_anos < 12  THEN 'Crianca (1 a 11)'
+            WHEN i.idade_anos < 18  THEN 'Adolescente (12 a 17)'
+            WHEN i.idade_anos < 60  THEN 'Adulto (18 a 59)'
+            WHEN i.idade_anos IS NOT NULL THEN 'Idoso (60 ou mais)'
+          END,
+          i.cid_principal, d.ds_cid_abrev, d.ds_capitulo"""),
+]
+
+# Comentarios do dicionario: alem de documentar, sao lidos pelo
+# PKG_ASK_AI para montar o prompt do modelo (M3). Descricao boa aqui
+# = SQL melhor gerado. Reaplicados a cada execucao porque CREATE OR
+# REPLACE VIEW pode descarta-los.
+# ANNOTATIONS (Oracle 23ai/26ai) — metadados estruturados em pares
+# chave-valor, complementares ao COMMENT ON (que e texto livre).
+# Consultaveis em USER_ANNOTATIONS_USAGE. Documentam camada, fonte,
+# grao e a qual modulo do produto cada view serve.
+ANOTACOES = [
+    """ALTER VIEW gld_perfil_clinico ANNOTATIONS (ADD OR REPLACE
+         Camada 'Ouro', Grao 'hospital x competencia x faixa etaria x capitulo CID',
+         Fonte 'SLV_INTERNACAO + DIM_CID', Modulo 'M3 - Perguntas em linguagem natural')""",
+
+    """ALTER VIEW gld_diagnosticos ANNOTATIONS (ADD OR REPLACE
+         Camada 'Ouro', Grao 'faixa etaria x codigo CID',
+         Fonte 'SLV_INTERNACAO + DIM_CID', Modulo 'M3 - Perguntas em linguagem natural')""",
+    """ALTER VIEW gld_ocupacao_mensal ANNOTATIONS (ADD OR REPLACE
+         Camada 'Ouro', Grao 'hospital x competencia',
+         Fonte 'SIH/TabNet + CNES', Modulo 'M1 - Painel de Ocupacao',
+         Metrica 'paciente-dia / leito-dia')""",
+
+    """ALTER VIEW gld_kpi_rede ANNOTATIONS (ADD OR REPLACE
+         Camada 'Ouro', Grao 'competencia',
+         Fonte 'GLD_OCUPACAO_MENSAL + Prata', Modulo 'M1 - Painel de Ocupacao',
+         Uso 'KPIs da tela de visao geral')""",
+
+    """ALTER VIEW gld_features_hospital ANNOTATIONS (ADD OR REPLACE
+         Camada 'Ouro', Grao 'hospital',
+         Fonte 'SIH/RD + CNES', Modulo 'M2 - Benchmarking',
+         Uso 'matriz de entrada do K-Means')""",
+
+    """ALTER VIEW gld_fatores_hospital ANNOTATIONS (ADD OR REPLACE
+         Camada 'Ouro', Grao 'hospital',
+         Fonte 'GLD_FEATURES_HOSPITAL + GLD_CLUSTER',
+         Modulo 'M2 - Fatores de Pressao',
+         Metodo 'z-score dentro do cluster, piso de relevancia 1 desvio')""",
+]
+
+COMENTARIOS = [
+    "COMMENT ON TABLE gld_perfil_clinico IS 'Perfil epidemiologico das internacoes: quantas internacoes, permanencia e mortalidade por hospital, competencia, faixa etaria e capitulo da CID-10. Grao: hospital x mes x faixa etaria x capitulo'",
+    "COMMENT ON COLUMN gld_perfil_clinico.faixa_etaria IS 'Faixa etaria do paciente: Menor de 1 ano, Crianca (1 a 11), Adolescente (12 a 17), Adulto (18 a 59) ou Idoso (60 ou mais)'",
+    "COMMENT ON COLUMN gld_perfil_clinico.ds_capitulo IS 'Capitulo da CID-10, agrupa diagnosticos por sistema ou natureza da doenca. Ex.: doencas do aparelho respiratorio, neoplasias, gravidez e parto'",
+    "COMMENT ON COLUMN gld_perfil_clinico.internacoes IS 'Quantidade de internacoes no recorte'",
+    "COMMENT ON COLUMN gld_perfil_clinico.paciente_dia IS 'Soma dos dias de permanencia no recorte'",
+    "COMMENT ON COLUMN gld_perfil_clinico.valor_total IS 'Valor total faturado no recorte, em reais'",
+
+    "COMMENT ON TABLE gld_diagnosticos IS 'Diagnosticos mais frequentes por faixa etaria em toda a rede e todo o periodo. Responde o que mais interna criancas, idosos e demais faixas. Grao: faixa etaria x codigo CID'",
+    "COMMENT ON COLUMN gld_diagnosticos.co_cid IS 'Codigo CID-10 do diagnostico principal'",
+    "COMMENT ON COLUMN gld_diagnosticos.ds_cid IS 'Nome do diagnostico. Use esta coluna para exibir a doenca, nao o codigo'",
+    "COMMENT ON COLUMN gld_diagnosticos.hospitais IS 'Quantos hospitais distintos registraram esse diagnostico'",
+    "COMMENT ON COLUMN gld_features_hospital.atuacao_sus_residual IS 'Sinalizador 1 para hospitais com menos de 300 internacoes no periodo, excluidos das analises e do modelo'",
+    "COMMENT ON COLUMN gld_fatores_hospital.z_volume IS 'Desvios-padrao do volume de internacoes frente aos pares do grupo. Positivo indica volume acima dos semelhantes'",
+    "COMMENT ON COLUMN gld_fatores_hospital.z_permanencia IS 'Desvios-padrao da permanencia media frente aos pares do grupo'",
+    "COMMENT ON COLUMN gld_fatores_hospital.z_gravidade IS 'Desvios-padrao da mortalidade frente aos pares do grupo'",
+    "COMMENT ON COLUMN gld_fatores_hospital.z_complexidade IS 'Desvios-padrao do valor medio por internacao frente aos pares do grupo'",
+    # Identificadores e nomes: sem comentario a coluna fica invisivel para o
+    # PKG_ASK_AI (que monta o prompt so com colunas comentadas) — e o modelo
+    # acaba devolvendo codigo em vez de nome.
+    "COMMENT ON COLUMN gld_ocupacao_mensal.nome_estabelecimento IS 'Nome do hospital. Use esta coluna para identificar o hospital nos resultados, nao o codigo CNES'",
+    "COMMENT ON COLUMN gld_ocupacao_mensal.ds_tipo_unidade IS 'Tipo da unidade: hospital geral, hospital especializado, pronto socorro e outros'",
+    "COMMENT ON COLUMN gld_features_hospital.co_cnes IS 'Codigo CNES do estabelecimento, 7 digitos. Chave de ligacao entre as views'",
+    "COMMENT ON COLUMN gld_features_hospital.nome_estabelecimento IS 'Nome do hospital. Use esta coluna para identificar o hospital nos resultados, nao o codigo CNES'",
+    "COMMENT ON COLUMN gld_features_hospital.tipo_unidade IS 'Tipo da unidade segundo o CNES'",
+    "COMMENT ON COLUMN gld_features_hospital.leitos_uti_sus IS 'Leitos de UTI disponibilizados ao SUS'",
+    "COMMENT ON COLUMN gld_features_hospital.taxa_max IS 'Maior ocupacao mensal observada no periodo'",
+    "COMMENT ON COLUMN gld_features_hospital.taxa_desvio IS 'Desvio-padrao da ocupacao entre os meses: mede oscilacao'",
+    "COMMENT ON COLUMN gld_features_hospital.meses_com_dado IS 'Quantidade de competencias com movimento registrado'",
+    "COMMENT ON COLUMN gld_kpi_rede.competencia IS 'Competencia no formato AAAAMM'",
+    "COMMENT ON COLUMN gld_kpi_rede.hospitais_total IS 'Total de hospitais no mes, incluindo os de atuacao residual'",
+    "COMMENT ON COLUMN gld_kpi_rede.hospitais_residuais IS 'Hospitais com atuacao SUS marginal, excluidos das analises'",
+    "COMMENT ON COLUMN gld_kpi_rede.atencao IS 'Hospitais com ocupacao entre 70 e 85 por cento'",
+    "COMMENT ON COLUMN gld_kpi_rede.ok IS 'Hospitais com ocupacao abaixo de 70 por cento'",
+    "COMMENT ON COLUMN gld_kpi_rede.ocupacao_media_simples IS 'Media aritmetica das taxas dos hospitais, sem ponderar por porte'",
+    "COMMENT ON COLUMN gld_fatores_hospital.co_cnes IS 'Codigo CNES do estabelecimento, 7 digitos'",
+    "COMMENT ON COLUMN gld_fatores_hospital.nome_estabelecimento IS 'Nome do hospital. Use esta coluna para identificar o hospital nos resultados, nao o codigo CNES'",
+    "COMMENT ON COLUMN gld_fatores_hospital.tipo_unidade IS 'Tipo da unidade segundo o CNES'",
+    "COMMENT ON COLUMN gld_fatores_hospital.leitos_sus IS 'Leitos SUS do hospital'",
+    "COMMENT ON COLUMN gld_fatores_hospital.taxa_media IS 'Ocupacao media do hospital no periodo completo'",
+    "COMMENT ON COLUMN gld_fatores_hospital.perm_media IS 'Permanencia media do hospital, em dias'",
+    "COMMENT ON COLUMN gld_fatores_hospital.perm_cluster IS 'Permanencia media dos hospitais do mesmo perfil'",
+    "COMMENT ON COLUMN gld_fatores_hospital.total_aihs IS 'Total de internacoes do hospital no periodo'",
+    "COMMENT ON COLUMN gld_fatores_hospital.aihs_cluster IS 'Media de internacoes dos hospitais do mesmo perfil'",
+    "COMMENT ON COLUMN gld_fatores_hospital.tx_mortalidade IS 'Percentual de internacoes com obito no hospital'",
+    "COMMENT ON COLUMN gld_fatores_hospital.mort_cluster IS 'Mortalidade media dos hospitais do mesmo perfil'",
+    "COMMENT ON COLUMN gld_fatores_hospital.val_medio_aih IS 'Valor medio faturado por internacao, em reais'",
+    "COMMENT ON COLUMN gld_fatores_hospital.val_aih_cluster IS 'Valor medio por internacao dos hospitais do mesmo perfil'",
+    "COMMENT ON COLUMN gld_fatores_hospital.cluster_id IS 'Identificador numerico do perfil, use cluster_nome para exibir'",
+    "COMMENT ON COLUMN gld_fatores_hospital.dist_centroide IS 'Distancia ao centro do proprio grupo: quanto menor, mais tipico do perfil'",
+    "COMMENT ON TABLE gld_ocupacao_mensal IS 'Taxa de ocupacao por hospital e competencia mensal, com semaforo, tendencia e ranking. Grao: um hospital por mes'",
+    "COMMENT ON COLUMN gld_ocupacao_mensal.co_cnes IS 'Codigo CNES do estabelecimento, 7 digitos'",
+    "COMMENT ON COLUMN gld_ocupacao_mensal.competencia IS 'Competencia no formato texto AAAAMM, de 202501 a 202605'",
+    "COMMENT ON COLUMN gld_ocupacao_mensal.paciente_dia IS 'Soma dos dias de permanencia das internacoes no mes'",
+    "COMMENT ON COLUMN gld_ocupacao_mensal.leito_dia IS 'Leitos SUS multiplicados pelos dias do mes: capacidade instalada'",
+    "COMMENT ON COLUMN gld_ocupacao_mensal.taxa_ocupacao IS 'Percentual de ocupacao: paciente_dia dividido por leito_dia. Acima de 100 indica leitos subdeclarados no CNES'",
+    "COMMENT ON COLUMN gld_ocupacao_mensal.semaforo IS 'Classificacao: CRITICO acima de 85 por cento, ATENCAO entre 70 e 85, OK abaixo de 70, RESIDUAL para hospitais de atuacao SUS marginal'",
+    "COMMENT ON COLUMN gld_ocupacao_mensal.var_vs_mes_anterior IS 'Variacao da taxa em pontos percentuais frente ao mes anterior'",
+    "COMMENT ON COLUMN gld_ocupacao_mensal.media_movel_3m IS 'Media movel da taxa nos ultimos 3 meses, suaviza oscilacoes pontuais'",
+    "COMMENT ON COLUMN gld_ocupacao_mensal.ranking_no_mes IS 'Posicao do hospital na competencia, 1 e a maior ocupacao. Nulo para atuacao residual'",
+    "COMMENT ON COLUMN gld_ocupacao_mensal.atuacao_sus_residual IS 'Sinalizador 1 para hospitais com menos de 300 internacoes no periodo, excluidos das analises'",
+
+    "COMMENT ON TABLE gld_kpi_rede IS 'Indicadores consolidados da rede hospitalar por competencia. Grao: uma competencia'",
+    "COMMENT ON COLUMN gld_kpi_rede.competencia_label IS 'Competencia formatada para exibicao, exemplo Mai/2026'",
+    "COMMENT ON COLUMN gld_kpi_rede.hospitais_ativos IS 'Quantidade de hospitais com atuacao SUS efetiva no mes'",
+    "COMMENT ON COLUMN gld_kpi_rede.leitos_sus IS 'Total de leitos SUS dos hospitais ativos'",
+    "COMMENT ON COLUMN gld_kpi_rede.internacoes IS 'Numero de internacoes (AIH) no mes. Nulo em competencias sem microdado carregado'",
+    "COMMENT ON COLUMN gld_kpi_rede.ocupacao_rede IS 'Ocupacao da rede ponderada pelo porte: soma de paciente_dia dividida pela soma de leito_dia'",
+    "COMMENT ON COLUMN gld_kpi_rede.criticos IS 'Hospitais com ocupacao acima de 85 por cento no mes'",
+
+    "COMMENT ON TABLE gld_features_hospital IS 'Perfil consolidado de cada hospital no periodo completo, usado como entrada do modelo de agrupamento. Grao: um hospital'",
+    "COMMENT ON COLUMN gld_features_hospital.leitos_sus IS 'Leitos SUS disponiveis, indicador de porte'",
+    "COMMENT ON COLUMN gld_features_hospital.taxa_media IS 'Ocupacao media do hospital nas 17 competencias'",
+    "COMMENT ON COLUMN gld_features_hospital.perm_media IS 'Tempo medio de permanencia por internacao, em dias'",
+    "COMMENT ON COLUMN gld_features_hospital.pct_urgencia IS 'Percentual de internacoes de urgencia sobre o total, o restante e eletivo'",
+    "COMMENT ON COLUMN gld_features_hospital.pct_alta_complex IS 'Percentual de internacoes de alta complexidade'",
+    "COMMENT ON COLUMN gld_features_hospital.pct_diarias_uti IS 'Percentual de diarias em UTI sobre o total de dias de internacao'",
+    "COMMENT ON COLUMN gld_features_hospital.tx_mortalidade IS 'Percentual de internacoes com obito'",
+    "COMMENT ON COLUMN gld_features_hospital.idade_media IS 'Idade media dos pacientes internados, em anos'",
+    "COMMENT ON COLUMN gld_features_hospital.total_aihs IS 'Total de internacoes no periodo'",
+    "COMMENT ON COLUMN gld_features_hospital.val_medio_aih IS 'Valor medio faturado por internacao em reais, proxy de densidade tecnologica'",
+
+    "COMMENT ON TABLE gld_fatores_hospital IS 'Compara cada hospital com a media dos pares do seu grupo e identifica o fator que explica a pressao assistencial. Grao: um hospital'",
+    "COMMENT ON COLUMN gld_fatores_hospital.cluster_nome IS 'Perfil assistencial do hospital: Grandes / ensino, Gerais / urgencia, Pequenos especializados ou Longa permanencia'",
+    "COMMENT ON COLUMN gld_fatores_hospital.n_cluster IS 'Quantidade de hospitais no mesmo perfil'",
+    "COMMENT ON COLUMN gld_fatores_hospital.taxa_cluster IS 'Ocupacao media dos hospitais do mesmo perfil'",
+    "COMMENT ON COLUMN gld_fatores_hospital.dif_taxa_pp IS 'Diferenca em pontos percentuais entre a ocupacao do hospital e a media do seu perfil'",
+    "COMMENT ON COLUMN gld_fatores_hospital.rank_no_cluster IS 'Posicao do hospital dentro do proprio perfil, 1 e a maior ocupacao'",
+    "COMMENT ON COLUMN gld_fatores_hospital.fator_dominante IS 'Causa provavel da pressao: VOLUME, PERMANENCIA, GRAVIDADE, COMPLEXIDADE, MULTIFATORIAL quando nenhuma se destaca, ou SEM PRESSAO quando o hospital esta abaixo dos pares em tudo'",
+    "COMMENT ON COLUMN gld_fatores_hospital.z_fator IS 'Quantos desvios-padrao o hospital esta acima da media do seu perfil na dimensao dominante'",
+    "COMMENT ON COLUMN gld_fatores_hospital.evidencia IS 'Valor observado da dimensao dominante, formatado para exibicao'",
+    "COMMENT ON COLUMN gld_fatores_hospital.insight IS 'Leitura em linguagem natural do desvio encontrado'",
+    "COMMENT ON COLUMN gld_fatores_hospital.recomendacao IS 'Direcao de investigacao sugerida ao gestor, nao e prescricao clinica'",
+    "COMMENT ON COLUMN gld_fatores_hospital.pca_x IS 'Coordenada horizontal da projecao bidimensional usada no grafico de dispersao'",
+    "COMMENT ON COLUMN gld_fatores_hospital.pca_y IS 'Coordenada vertical da projecao bidimensional usada no grafico de dispersao'",
 ]
 
 VALIDACOES = [
@@ -317,6 +534,15 @@ SELECT competencia_label, hospitais_total, hospitais_ativos, hospitais_residuais
   FROM gld_kpi_rede
  ORDER BY competencia"""),
 
+    ("O que mais interna criancas e idosos", """
+SELECT faixa_etaria, ds_cid, internacoes, perm_media, tx_mortalidade
+  FROM (SELECT d.*, ROW_NUMBER() OVER (PARTITION BY faixa_etaria
+                                       ORDER BY internacoes DESC) rn
+          FROM gld_diagnosticos d
+         WHERE faixa_etaria IN ('Crianca (1 a 11)', 'Idoso (60 ou mais)'))
+ WHERE rn <= 5
+ ORDER BY faixa_etaria, internacoes DESC"""),
+
     ("Distribuição dos fatores de pressão", """
 SELECT fator_dominante, COUNT(*) hospitais
   FROM gld_fatores_hospital
@@ -343,6 +569,28 @@ def main():
             print(f"→ criando {nome} ...", end=" ")
             cur.execute(sql)
             print("OK")
+
+        print(f"→ aplicando {len(COMENTARIOS)} comentarios ...", end=" ")
+        aplicados = 0
+        for c in COMENTARIOS:
+            try:
+                cur.execute(c)
+                aplicados += 1
+            except Exception as e:
+                print(f"\n   aviso: {c[:60]}... -> {e}")
+        print(f"{aplicados}/{len(COMENTARIOS)} OK")
+
+        # annotations sao recurso do 23ai/26ai; se a versao nao suportar,
+        # o script segue sem elas (os comentarios ja cobrem a documentacao)
+        print(f"→ aplicando {len(ANOTACOES)} annotations ...", end=" ")
+        ok_anot = 0
+        for a in ANOTACOES:
+            try:
+                cur.execute(a)
+                ok_anot += 1
+            except Exception as e:
+                print(f"\n   aviso: {e}")
+        print(f"{ok_anot}/{len(ANOTACOES)} OK")
 
     for nome, sql in VALIDACOES:
         print(f"\n=== {nome} ===")
