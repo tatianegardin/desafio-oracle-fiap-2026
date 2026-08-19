@@ -68,7 +68,24 @@ SELECT comp AS competencia, cnes, nome_estabelecimento, razao_social,
        uti_total_exist, uti_total_sus,
        uti_adulto_exist, uti_adulto_sus,
        uti_pediatrico_exist, uti_pediatrico_sus,
-       uti_neonatal_exist, uti_neonatal_sus
+       uti_neonatal_exist, uti_neonatal_sus,
+       -- localizacao: base da analise regional (board #40)
+       no_bairro,
+       co_cep,
+       -- Zona a partir do prefixo do CEP. Os Correios organizam a capital
+       -- em faixas por regiao: 01 centro, 02 norte, 03 leste, 04 sul,
+       -- 05 oeste e 08 extremo leste. E uma aproximacao geografica
+       -- (o CEP e do endereco do estabelecimento, nao da area de
+       -- cobertura assistencial), suficiente para agrupar a rede.
+       CASE SUBSTR(co_cep, 1, 2)
+         WHEN '01' THEN 'Centro'
+         WHEN '02' THEN 'Zona Norte'
+         WHEN '03' THEN 'Zona Leste'
+         WHEN '04' THEN 'Zona Sul'
+         WHEN '05' THEN 'Zona Oeste'
+         WHEN '08' THEN 'Extremo Leste'
+         ELSE 'Nao identificada'
+       END AS zona
   FROM brz_cnes_leitos_raw
  WHERE co_ibge = '355030'"""),
 
@@ -143,6 +160,44 @@ SELECT s.subcat                AS co_cid,
   LEFT JOIN brz_cid_capitulos_raw c
     ON SUBSTR(s.subcat, 1, 3) BETWEEN c.catinic AND c.catfim"""),
 
+
+    # Parse do JSON da API do CNES. A Bronze guarda o documento como
+    # veio; aqui ele vira colunas tipadas, como qualquer outra fonte.
+    ("drop slv_estabelecimento (se existir)",
+     "BEGIN EXECUTE IMMEDIATE 'DROP TABLE slv_estabelecimento PURGE'; "
+     "EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;"),
+
+    ("criar slv_estabelecimento", """
+CREATE TABLE slv_estabelecimento AS
+SELECT co_cnes,
+       JSON_VALUE(payload, '$.nome_fantasia')                         AS nome_fantasia,
+       JSON_VALUE(payload, '$.nome_razao_social')                     AS razao_social,
+       JSON_VALUE(payload, '$.bairro_estabelecimento')                AS bairro,
+       JSON_VALUE(payload, '$.codigo_cep_estabelecimento')            AS cep,
+       JSON_VALUE(payload, '$.endereco_estabelecimento')              AS logradouro,
+       JSON_VALUE(payload, '$.latitude_estabelecimento_decimo_grau'
+                  RETURNING NUMBER)                                   AS latitude,
+       JSON_VALUE(payload, '$.longitude_estabelecimento_decimo_grau'
+                  RETURNING NUMBER)                                   AS longitude,
+       JSON_VALUE(payload, '$.descricao_turno_atendimento')           AS turno_atendimento,
+       JSON_VALUE(payload, '$.descricao_esfera_administrativa')       AS esfera_administrativa,
+       -- atributos estruturais que o arquivo de leitos nao traz
+       CASE JSON_VALUE(payload, '$.estabelecimento_possui_centro_cirurgico')
+            WHEN '1' THEN 1 ELSE 0 END                                AS tem_centro_cirurgico,
+       CASE JSON_VALUE(payload, '$.estabelecimento_possui_centro_obstetrico')
+            WHEN '1' THEN 1 ELSE 0 END                                AS tem_centro_obstetrico,
+       CASE JSON_VALUE(payload, '$.estabelecimento_possui_centro_neonatal')
+            WHEN '1' THEN 1 ELSE 0 END                                AS tem_centro_neonatal,
+       CASE JSON_VALUE(payload, '$.estabelecimento_possui_atendimento_hospitalar')
+            WHEN '1' THEN 1 ELSE 0 END                                AS tem_atend_hospitalar,
+       -- codigo 04 = unidade sem atividade de ensino; demais indicam ensino/pesquisa
+       CASE WHEN JSON_VALUE(payload, '$.codigo_atividade_ensino_unidade')
+                 NOT IN ('04') THEN 1 ELSE 0 END                      AS tem_atividade_ensino,
+       JSON_VALUE(payload, '$.codigo_atividade_ensino_unidade')       AS co_atividade_ensino,
+       TO_DATE(JSON_VALUE(payload, '$.data_atualizacao'), 'YYYY-MM-DD') AS data_atualizacao_cnes
+  FROM brz_cnes_api_raw
+ WHERE http_status = 200"""),
+
 ]
 
 CHAVES = [
@@ -177,6 +232,11 @@ CHAVES = [
 # complementares ao COMMENT ON (texto livre). Consultaveis em
 # USER_ANNOTATIONS_USAGE e usados por ferramentas de catalogo e IA.
 ANOTACOES = [
+    """ALTER TABLE slv_estabelecimento ANNOTATIONS (ADD OR REPLACE
+         Camada 'Prata', Grao 'um estabelecimento',
+         Fonte 'API dados abertos CNES (JSON)',
+         Formato 'semiestruturado',
+         Uso 'geolocalizacao para mapa e atributos estruturais')""",
     """ALTER TABLE slv_internacao ANNOTATIONS (ADD OR REPLACE
          Camada 'Prata', Grao 'uma internacao (AIH)',
          Fonte 'SIH-RD / DATASUS', Recorte 'municipio 355030 - Sao Paulo capital',
@@ -200,6 +260,18 @@ ANOTACOES = [
 ]
 
 COMENTARIOS = [
+    "COMMENT ON TABLE slv_estabelecimento IS 'Cadastro do estabelecimento vindo da API do CNES em JSON, ja tipado: localizacao geografica, atributos estruturais e atividade de ensino. Grao: um estabelecimento'",
+    "COMMENT ON COLUMN slv_estabelecimento.latitude IS 'Latitude em grau decimal, permite plotar o hospital em mapa'",
+    "COMMENT ON COLUMN slv_estabelecimento.longitude IS 'Longitude em grau decimal, permite plotar o hospital em mapa'",
+    "COMMENT ON COLUMN slv_estabelecimento.bairro IS 'Bairro do estabelecimento conforme a API do CNES'",
+    "COMMENT ON COLUMN slv_estabelecimento.tem_centro_cirurgico IS 'Sinalizador 1 quando o estabelecimento possui centro cirurgico'",
+    "COMMENT ON COLUMN slv_estabelecimento.tem_centro_obstetrico IS 'Sinalizador 1 quando possui centro obstetrico, indica maternidade'",
+    "COMMENT ON COLUMN slv_estabelecimento.tem_centro_neonatal IS 'Sinalizador 1 quando possui centro neonatal'",
+    "COMMENT ON COLUMN slv_estabelecimento.tem_atividade_ensino IS 'Sinalizador 1 quando a unidade tem atividade de ensino ou pesquisa registrada no CNES'",
+    "COMMENT ON COLUMN slv_estabelecimento.turno_atendimento IS 'Turno de funcionamento declarado, identifica unidades de plantao 24 horas'",
+    "COMMENT ON COLUMN slv_cnes_leitos.no_bairro IS 'Bairro do endereco do estabelecimento, conforme cadastro CNES'",
+    "COMMENT ON COLUMN slv_cnes_leitos.co_cep IS 'CEP do estabelecimento'",
+    "COMMENT ON COLUMN slv_cnes_leitos.zona IS 'Zona da capital derivada do prefixo do CEP: Centro, Zona Norte, Zona Leste, Zona Sul, Zona Oeste ou Extremo Leste'",
     "COMMENT ON COLUMN slv_internacao.competencia IS 'Competencia de faturamento no formato AAAAMM'",
     "COMMENT ON COLUMN slv_internacao.qt_diarias IS 'Quantidade de diarias faturadas na internacao'",
     "COMMENT ON COLUMN slv_internacao.val_uti IS 'Valor faturado referente a UTI, em reais'",

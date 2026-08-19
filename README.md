@@ -1,57 +1,152 @@
-# HOSPCHECK SP — Painel Inteligente de Ocupação Hospitalar (São Paulo Capital)
+# HOSPCHECK SP — Painel Inteligente de Ocupação Hospitalar
 
-FIAP · Oracle Challenge 2026 · Turma 1TSCOA
+**FIAP · Oracle Challenge 2026 · Turma 1TSCOA · Grupo 22**
 Felipe Costas Meneses · Luís Alberto Alarcão Magalhães · Marco Antônio Andrade de Paula · Tatiane Lacerda Gardin
+
+---
 
 ## O problema
 
-O CNES sabe quantos leitos existem; o SIH sabe quantos pacientes os ocuparam e por quanto tempo. Nenhum sistema aberto cruza os dois. Este projeto calcula a **taxa de ocupação real** dos ~100 hospitais SUS ativos da capital paulista:
+O CNES sabe quantos leitos existem. O SIH sabe quantos pacientes os ocuparam e por quantos
+dias. **Nenhum sistema público cruza os dois** — e sem esse cruzamento, gestores decidem
+alocação de recursos sem saber quais hospitais operam no limite.
+
+Este projeto calcula a taxa de ocupação real dos hospitais SUS da capital paulista a partir
+de dados abertos do DATASUS:
 
 ```
 taxa de ocupação = paciente-dia ÷ leito-dia
-paciente-dia = Dias_Perm (SIH/TabNet) · leito-dia = leitos SUS (CNES) × dias do mês
+
+paciente-dia = dias de permanência das internações (SIH)
+leito-dia    = leitos SUS × dias do mês (CNES)
 ```
 
-Referência ANS: operação saudável entre 75–85%; acima disso aumentam eventos adversos.
+Referência ANS: operação saudável entre 75% e 85%; acima disso aumentam eventos adversos e
+infecção hospitalar.
 
-## Arquitetura (pipeline Oracle Cloud Always Free)
+## O que a solução entrega
+
+| Módulo | Pergunta que responde |
+|---|---|
+| **M1 — Painel de Ocupação** | Quais hospitais estão no limite? Estão melhorando ou piorando? |
+| **M2 — Benchmarking e Fatores** | Comparado a quem? E **por quê** este hospital está pressionado? |
+| **M3 — Perguntas em português** | Qualquer pergunta acima, sem saber SQL |
+
+O diferencial do M2: o K-Means agrupa hospitais por **perfil assistencial** e cada unidade é
+comparada com os **pares do seu grupo**, não com a rede inteira. Comparar um hospital
+psiquiátrico (permanência de 23 dias) com um pronto-socorro (5 dias) não produz decisão útil.
+
+## Arquitetura
 
 ```
-DATASUS/TabNet → OCI Object Storage → ADB 26ai (Bronze → Prata → Ouro)
-                  (staging, dado cru)    ├─ APEX (painel M1)
-                                         ├─ K-Means via Colab (M2)
-                                         └─ Select AI (M3)
+        FONTES                    INGESTÃO              PROCESSAMENTO            CONSUMO
+┌──────────────────────┐   ┌──────────────────┐   ┌──────────────────┐   ┌──────────────┐
+│ SIH-RD (relacional)  │──▶│ Object Storage   │──▶│  BRONZE  cru     │   │ APEX      M1 │
+│ Leitos, TabNet, CID  │   │ + COPY_DATA      │   │     ↓            │──▶│ K-Means   M2 │
+│         (CSV)        │   │                  │   │  PRATA   tipado  │   │ Pergunte  M3 │
+├──────────────────────┤   ├──────────────────┤   │     ↓            │   │ à IA         │
+│ CNES API   (JSON)    │──▶│ Python + urllib  │──▶│  OURO    negócio │   └──────────────┘
+└──────────────────────┘   └──────────────────┘   └──────────────────┘
+                                       Oracle Autonomous AI Database 26ai
 ```
 
-- **Bronze**: dado cru, 1:1 com os arquivos originais (`sql/01`, `sql/02`)
-- **Prata**: tratativa 100% em SQL — UNPIVOT, limpeza, recorte SP capital, cálculo da taxa (`sql/03`)
-- **Ouro**: métricas de negócio para APEX/Select AI (em construção)
+**Camadas**
+
+- **Bronze** — dado como veio da fonte, 1:1, sem tratamento. Auditabilidade: dá para provar
+  que o número do painel vem do arquivo original do DATASUS.
+- **Prata** — recorte da capital, conversão de tipos, domínios decodificados, parse do JSON,
+  chaves e relacionamentos declarados.
+- **Ouro** — 8 views com métricas de negócio: ocupação com semáforo, features do modelo,
+  fatores de pressão, perfil clínico, sazonalidade e território.
+
+**Decisão de arquitetura: ELT, não ETL.** A transformação acontece **dentro do banco** —
+Python orquestra, SQL executa, o dado não viaja. Python é usado onde SQL não alcança:
+conversão `.dbc`→`.csv`, consumo da API e K-Means.
+
+**Tecnologias:** Oracle Autonomous AI Database 26ai (Always Free) · OCI Object Storage ·
+Oracle APEX · PL/SQL e SQL analítico (window functions, `UNPIVOT`, `JSON_VALUE`) ·
+Python (`oracledb`, `pandas`, `scikit-learn`, `matplotlib`) · LLM via REST para o M3.
 
 ## Estrutura do repositório
 
 ```
-sql/              scripts na ordem de execução (00 credencial → 04 validação)
+sql/
+  setup/          credencial DBMS_CLOUD e grants
+  bronze/         DDL e carga dos CSVs (COPY_DATA)
+  ia/             spike e pacote PKG_ASK_AI (M3)
+  testes/         consultas de conferência
 etl/
-  fontes.md       onde e como baixar cada fonte de dados
+  fontes.md       de onde vem cada dado, com links e formato
   conversao/      conversores .dbc (DATASUS) → .csv
-dados/
-  leitos/         CNES — leitos por estabelecimento (arquivos originais)
-  tabnet/         TabNet SMS-SP — dias de permanência (arquivo original)
-  sihsus/         RDSP convertidos (não versionados — ver LEIA-ME da pasta)
-analytics/        notebooks do K-Means (em construção)
+  pipeline/       orquestração Python: API, Prata, Ouro
+analytics/
+  kmeans.py       modelo de agrupamento → GLD_CLUSTER
+  METODOLOGIA.md  features, escolha do K, método do fator dominante
+dados/            arquivos originais (sihsus não versionado, ver LEIA-ME)
+docs/             handoff do projeto e registro de decisões
 ```
 
 ## Como reproduzir
 
-1. Provisionar ADB 26ai Always Free + bucket `hospcheck-staging` no OCI
-2. Subir os arquivos de `dados/` no bucket sem alterá-los (fontes em `etl/fontes.md`)
-3. Executar os scripts de `sql/` na ordem: `00_credencial` (preencher usuário OCI + Auth Token — nunca commitar preenchido) → `01_bronze_ddl` → `02_bronze_load` → `03_prata_views` → `04_validacao`
-4. Conferir os resultados esperados comentados no `04_validacao.sql`
+**Pré-requisitos:** ADB 26ai Always Free provisionado, bucket `hospcheck-staging` criado,
+wallet baixado, Python 3.10+.
 
-## Status (jul/2026)
+**1. Baixar os dados** (fontes e links em `etl/fontes.md`) e subir no bucket sem alterá-los.
+Os `.dbc` do SIH precisam ser convertidos antes:
 
-- [x] ADB provisionado + wallet validado
-- [x] Camada Bronze: tabelas criadas e dados carregados via DBMS_CLOUD
-- [ ] Camada Prata (views de tratativa — script pronto em sql/03)
-- [ ] Camada Ouro (views de negócio, features do K-Means)
-- [ ] Dashboard APEX (M1) · K-Means (M2) · Select AI (M3)
+```bash
+python etl/conversao/dbc_to_csv_batch.py
+```
+
+**2. Carregar a Bronze dos CSVs** — no Database Actions, como ADMIN, na ordem:
+
+```
+sql/setup/01_credencial.sql      (preencher usuário OCI + Auth Token)
+sql/bronze/01_ddl_tabnet_leitos.sql
+sql/bronze/02_load_tabnet_leitos.sql
+sql/bronze/03_ddl_load_sih_rd.sql
+sql/bronze/04_ddl_load_cid.sql
+```
+
+**3. Rodar o pipeline** — um comando monta o resto do banco:
+
+```bash
+cd etl/pipeline
+pip install -r requirements.txt
+cp .env.example .env             # preencher as senhas
+unzip wallet.zip -d wallet/      # wallet do ADB
+
+python run_pipeline.py
+```
+
+Executa, na ordem: ingestão da API do CNES (JSON) → Prata → Ouro → K-Means.
+Cada etapa imprime validações ao final.
+
+**4. Liberar o acesso do APEX:**
+
+```
+sql/setup/02_grants.sql
+```
+
+**Execuções parciais:** `--api` · `--prata` · `--ouro` · `--modelo` · `--sem-modelo`.
+As views Ouro usam `CREATE OR REPLACE`, então rodar de novo é seguro e idempotente.
+
+## Decisões documentadas
+
+| Assunto | Onde |
+|---|---|
+| Features do modelo, escolha do K, método do fator dominante | `analytics/METODOLOGIA.md` |
+| Critério de "atuação SUS residual" (corte de 300 internações) | `etl/pipeline/README.md` |
+| Bug de plataforma no Select AI e rota adotada | `docs/bug-selectai-ora20404.md` |
+| Estado do projeto, convenções e armadilhas conhecidas | `docs/HANDOFF_DETALHADO.md` |
+
+## Status
+
+- [x] Bronze — 4 fontes carregadas (relacional, JSON e CSV)
+- [x] Prata — 6 tabelas com tipos, domínios, chaves e relacionamentos
+- [x] Ouro — 8 views de negócio, com comentários e annotations no dicionário
+- [x] M1 — Painel de ocupação no APEX
+- [x] M2 — K-Means com 4 perfis + fatores de pressão
+- [x] M3 — Perguntas em linguagem natural gerando SQL
+- [ ] Mapa dos hospitais (coordenadas já disponíveis)
+- [ ] Bateria de validação do M3 e diagrama ER
