@@ -33,6 +33,8 @@ GRANT SELECT ON gld_cluster               TO MARCO;
 GRANT SELECT ON gld_fatores_hospital      TO MARCO;
 GRANT SELECT ON gld_perfil_clinico        TO MARCO;
 GRANT SELECT ON gld_diagnosticos          TO MARCO;
+GRANT SELECT ON gld_sazonalidade          TO MARCO;
+GRANT SELECT ON gld_regional              TO MARCO;
 
 -- ------------------------------------------------------------
 -- 2. Workspace do APEX
@@ -54,6 +56,8 @@ GRANT SELECT ON gld_cluster           TO wksp_hospcheck;
 GRANT SELECT ON gld_fatores_hospital  TO wksp_hospcheck;
 GRANT SELECT ON gld_perfil_clinico    TO wksp_hospcheck;
 GRANT SELECT ON gld_diagnosticos      TO wksp_hospcheck;
+GRANT SELECT ON gld_sazonalidade      TO wksp_hospcheck;
+GRANT SELECT ON gld_regional          TO wksp_hospcheck;
 
 CREATE OR REPLACE SYNONYM wksp_hospcheck.gld_ocupacao_mensal   FOR admin.gld_ocupacao_mensal;
 CREATE OR REPLACE SYNONYM wksp_hospcheck.gld_features_hospital FOR admin.gld_features_hospital;
@@ -62,6 +66,8 @@ CREATE OR REPLACE SYNONYM wksp_hospcheck.gld_cluster           FOR admin.gld_clu
 CREATE OR REPLACE SYNONYM wksp_hospcheck.gld_fatores_hospital  FOR admin.gld_fatores_hospital;
 CREATE OR REPLACE SYNONYM wksp_hospcheck.gld_perfil_clinico    FOR admin.gld_perfil_clinico;
 CREATE OR REPLACE SYNONYM wksp_hospcheck.gld_diagnosticos      FOR admin.gld_diagnosticos;
+CREATE OR REPLACE SYNONYM wksp_hospcheck.gld_sazonalidade      FOR admin.gld_sazonalidade;
+CREATE OR REPLACE SYNONYM wksp_hospcheck.gld_regional          FOR admin.gld_regional;
 
 -- Pacote da funcionalidade "Pergunte a IA" (M3). O pacote roda com
 -- privilegios do dono, entao o workspace nao precisa de acesso a

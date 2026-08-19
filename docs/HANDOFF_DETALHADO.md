@@ -61,6 +61,7 @@ Detalhes, links e formatos em **`etl/fontes.md`**. Resumo:
 | Dias de permanência | TabNet SMS-SP (tabulação por hospital × mês) | paciente-dia (numerador) |
 | Leitos SUS | dadosabertos.saude.gov.br → "Hospitais e Leitos" | leito-dia (denominador) |
 | Microdados SIH-RD | DATASUS Transferência de Arquivos (Tipo **RD**, UF SP) | features do K-Means, perfil clínico |
+| Cadastro CNES (**JSON**) | API `apidadosabertos.saude.gov.br/cnes/estabelecimentos/{cnes}` | geolocalização, estrutura, atividade de ensino |
 | CID-10 | www2.datasus.gov.br/cid10/V2008/download.htm | traduzir código → doença |
 
 Carregado: TabNet out/24–mai/26 · Leitos 2025 + jan–jun/26 · RDSP jan–mar/25 e jan–mai/26 · CID-10 completo.
@@ -84,122 +85,105 @@ Carregado: TabNet out/24–mai/26 · Leitos 2025 + jan–jun/26 · RDSP jan–ma
 ## 5. Objetos no banco (schema ADMIN)
 
 ### Bronze — tabelas, dado cru
-| Objeto | Fonte | Volume | Notas |
-|---|---|---|---|
-| `BRZ_SIH_TABNET_RAW` | TabNet | ~104 linhas | 1 coluna por mês (`m_202410`…`m_202605`) + total, tudo VARCHAR2 |
-| `BRZ_CNES_LEITOS_RAW` | Leitos 25+26 | ~129 mil | 35 colunas, Brasil inteiro |
-| `BRZ_SIH_RD_RAW` | RDSP | ~230 mil/mês | 114 colunas, todas VARCHAR2, estado inteiro |
-| `BRZ_CID_SUBCATEGORIAS_RAW` | CID-10 | 12.451 | código de 4 caracteres + descrição |
-| `BRZ_CID_CAPITULOS_RAW` | CID-10 | 22 | faixas `catinic`–`catfim` |
+| Objeto | Fonte | Formato | Volume | Notas |
+|---|---|---|---|---|
+| `BRZ_SIH_TABNET_RAW` | TabNet | CSV | ~104 linhas | 1 coluna por mês, tudo VARCHAR2 |
+| `BRZ_CNES_LEITOS_RAW` | Leitos 25+26 | CSV | ~129 mil | 35 colunas, Brasil inteiro |
+| `BRZ_SIH_RD_RAW` | RDSP | CSV | ~230 mil/mês | 114 colunas, todas VARCHAR2 |
+| `BRZ_CID_SUBCATEGORIAS_RAW` | CID-10 | CSV | 12.451 | código + descrição |
+| `BRZ_CID_CAPITULOS_RAW` | CID-10 | CSV | 22 | faixas `catinic`–`catfim` |
+| `BRZ_CNES_API_RAW` | API dados abertos | **JSON** | ~150 | payload como veio; carregada por `bronze_api_cnes.py` |
 
-### Prata — **tabelas** (criadas por `etl/pipeline/prata_transform.py`)
+### Prata — tabelas (criadas por `etl/pipeline/prata_transform.py`)
 | Objeto | Grão | Conteúdo |
 |---|---|---|
-| `SLV_SIH_DIASPERM` | hospital × mês | UNPIVOT do TabNet: `co_cnes` (LPAD 7), `competencia` (YYYYMM), `dias_perm`. Descarta linha 'Total' e valores `-` |
-| `SLV_CNES_LEITOS` | estab × mês | Recorte `co_ibge='355030'`: leitos_sus, uti_*, tipo de unidade, natureza jurídica |
-| `SLV_INTERNACAO` | 1 linha por AIH (capital) | RD padronizado: valores/dias NUMBER, datas DATE, `idade_anos` normalizada (cod_idade 2=dias, 3=meses, 4=anos), `fl_obito`, `complexidade` MEDIA/ALTA, `carater_internacao` ELETIVO/URGENCIA, `cid_principal` |
-| `SLV_OCUPACAO` | hospital × mês | `paciente_dia`, `leito_dia` (leitos × dias do mês via LAST_DAY), `taxa_ocupacao` |
-| `DIM_CID` | 1 linha por código | código → descrição → capítulo (JOIN por faixa `SUBSTR(subcat,1,3) BETWEEN catinic AND catfim`) |
+| `SLV_SIH_DIASPERM` | hospital × mês | UNPIVOT do TabNet: `co_cnes` (LPAD 7), `competencia`, `dias_perm` |
+| `SLV_CNES_LEITOS` | estab × mês | recorte `co_ibge='355030'`; leitos, UTI, tipo, **bairro, CEP e zona** (derivada do prefixo do CEP) |
+| `SLV_INTERNACAO` | 1 linha por AIH (capital) | tipos convertidos, `idade_anos` normalizada, `fl_obito`, complexidade, caráter, CID |
+| `SLV_OCUPACAO` | hospital × mês | `paciente_dia`, `leito_dia`, `taxa_ocupacao` |
+| `SLV_ESTABELECIMENTO` | 1 por estabelecimento | **parse do JSON da API**: lat/long, centro cirúrgico/obstétrico/neonatal, atividade de ensino, turno |
+| `DIM_CID` | 1 por código | código → descrição → capítulo |
 
-Todas com índice em `(co_cnes, competencia)` onde aplicável.
-Recriação: rodar `prata_transform.py` (faz DROP + CTAS). Views antigas removidas por `sql/drop_slv_views_teste.sql`.
+Chaves declaradas: 5 PKs e 4 FKs (`RELY DISABLE NOVALIDATE`) — importam para o
+Select AI (relacionamentos são metadados que o modelo usa) e para o diagrama ER.
+Comentários e annotations aplicados a cada execução.
 
 ### Ouro — views (criadas por `etl/pipeline/ouro_transform.py`)
-| Objeto | Grão | Conteúdo |
+| Objeto | Grão | Serve a |
 |---|---|---|
-| `GLD_OCUPACAO_MENSAL` | hospital × mês | taxa + `semaforo` + `var_vs_mes_anterior` (LAG) + `media_movel_3m` (AVG OVER 2 PRECEDING) + `ranking_no_mes` (RANK) |
-| `GLD_FEATURES_HOSPITAL` | 1 linha por hospital | matriz do K-Means: porte, leitos UTI, taxa média/máx/desvio, permanência média, % diárias UTI, % urgência, % alta complexidade, mortalidade, idade média, total AIHs |
+| `GLD_OCUPACAO_MENSAL` | hospital × mês | Tela 1 — taxa, semáforo, LAG, média móvel, ranking, **lat/long, zona, bairro** |
+| `GLD_KPI_REDE` | competência | Tela 1 — KPIs da rede |
+| `GLD_FEATURES_HOSPITAL` | hospital | matriz do K-Means + atributos da API |
+| `GLD_FATORES_HOSPITAL` | hospital | Telas 2 e 4 — z-score no cluster, fator dominante, insight, recomendação |
+| `GLD_PERFIL_CLINICO` | hospital × mês × faixa etária × capítulo CID | M3 — perguntas epidemiológicas |
+| `GLD_DIAGNOSTICOS` | faixa etária × CID | M3 — o que mais interna cada faixa |
+| `GLD_SAZONALIDADE` | competência | Tela 4 — estação do ano e desvio vs. média |
+| `GLD_REGIONAL` | competência × zona × bairro | Tela 4 — ocupação por território |
+
+`GLD_CLUSTER` (tabela) é gravada por `analytics/kmeans.py`.
+`GLD_FATORES_HOSPITAL` usa `FORCE` — nasce inválida e se valida sozinha quando a
+`GLD_CLUSTER` aparece.
+
+### Números de sanidade
+- 84 hospitais no painel · 79 ativos · 5 com atuação SUS residual (< 300 AIHs)
+- Última competência: 18 críticos · 17 atenção · 42 adequados · 3 residuais
+- Clusters: Gerais/urgência 49 · Pequenos especializados 14 · Longa permanência 8 · Grandes/ensino 8
+- Ocupação por zona (mai/26): Extremo Leste 80,7% · Centro 52,3%
+- Sazonalidade: Inverno +1,3 p.p. · Verão −1,0 p.p. frente à média do período
+- IPq-HCFMUSP com ~160%: leitos subdeclarados no CNES — achado conhecido, não corrigir
 
 ### A criar
-`GLD_CLUSTER` (resultado do K-Means) · `GLD_FATORES_HOSPITAL` (#38) · função `ASK_AI` (#31) ·
-`PKG_TRANSFORM` (#17) · opcional: `GLD_PERFIL_CLINICO` (faixa etária × capítulo CID)
-
-### Números de sanidade (conferir após qualquer mudança)
-- `SLV_SIH_DIASPERM` = 1.696 linhas · hospitais cruzados em 202601 ≈ 84
-- Top ocupação mai/26: **IPq-HCFMUSP ~160%** (leitos subdeclarados no CNES — achado conhecido,
-  não "corrigir" na marra), Waldomiro de Paula ~100%, Campo Limpo ~99%
-- Distribuição jan–mai/26: 2 hospitais >100% · ~20 críticos · ~14 atenção · ~47 OK
-- RDSP 2601: 237.622 AIHs no estado / 59.860 na capital
-- Prova real RD × TabNet (soma de `dias_perm` por competência): diferenças de poucos % são normais
-
----
+Nada estrutural pendente. `PKG_TRANSFORM` (#17) foi descartado por decisão da
+equipe: a lógica fica em Python orquestrando SQL (ELT), e isso é explicado na
+apresentação.
 
 ## 6. Este repositório
 
 ```
-README.md               visão geral  (⚠️ seção "Como reproduzir"/"Status" desatualizada — ver §9)
-.gitignore              bloqueia: dados/sihsus/*, *.dbc, *.zip, wallet*, *.pem, .env, __pycache__
+README.md              visão geral, arquitetura e como reproduzir
+.gitignore             bloqueia dados/sihsus, wallet, .env, __pycache__
 sql/
-  00_credencial.sql     DBMS_CLOUD.CREATE_CREDENTIAL (placeholders — nunca commitar preenchido)
-  01_bronze_ddl.sql     CREATE TABLE das tabelas Bronze
-  02_bronze_load.sql    COPY_DATA (TabNet skipheaders=4 · leitos skipheaders=1 · WE8MSWIN1252 · ';')
-  08_prata_testes.sql   SELECTs de conferência da Prata (rodar no DBeaver)
-  90_grants.sql         GRANT SELECT para os usuários do grupo
-  drop_slv_views_teste.sql   remove as views antigas da Prata antes de recriar como tabelas
+  setup/               01 credencial DBMS_CLOUD · 02 grants
+  bronze/              01–04: DDL e carga dos CSVs via COPY_DATA
+  ia/                  01 spike REST · 02 pacote PKG_ASK_AI
+  testes/              consultas de conferência da Prata
 etl/
-  fontes.md             de onde vem cada dado, com links e formato
-  conversao/            dbc_to_csv.py e dbc_to_csv_batch.py (.dbc DATASUS → .csv)
+  fontes.md            de onde vem cada dado, links e formato
+  conversao/           dbc_to_csv.py e dbc_to_csv_batch.py
   pipeline/
-    db.py               conexão única com o ADB via wallet · get_connection() e read_df()
-    prata_transform.py  Bronze → Prata (4 tabelas + índices)
-    ouro_transform.py   Prata → Ouro (2 views) + validações
-    .env.example        modelo das variáveis (o .env real não é versionado)
-    requirements.txt    oracledb, pandas
-    wallet/             wallet do ADB — conteúdo ignorado pelo git
-dados/
-  leitos/ tabnet/       arquivos originais versionados
-  sihsus/               só LEIA-ME (RDSP passa de 100 MB por arquivo)
-docs/
-  bug-selectai-ora20404.md   cronologia do bug do Select AI (leitura obrigatória para o M3)
-  HANDOFF_DETALHADO.md       este arquivo
-analytics/              reservado para o notebook do K-Means
+    db.py              conexão única via wallet
+    run_pipeline.py    orquestrador: api → prata → ouro → modelo
+    bronze_api_cnes.py ingestão da API do CNES (JSON)
+    prata_transform.py Bronze → Prata
+    ouro_transform.py  Prata → Ouro
+analytics/
+  kmeans.py            modelo → GLD_CLUSTER
+  METODOLOGIA.md       features, escolha do K, validação externa, fator dominante
+dados/                 originais; sihsus não versionado
+docs/                  este handoff e o registro do bug do Select AI
 ```
 
-**Como rodar do zero:** `sql/00` → `sql/01` → `sql/02` → `etl/pipeline/prata_transform.py`
-→ `etl/pipeline/ouro_transform.py` → conferir com `sql/08_prata_testes.sql` → `sql/90_grants.sql`.
+**Rodar do zero:** carregar os CSVs com `sql/setup/01` + `sql/bronze/01–04`,
+depois `python etl/pipeline/run_pipeline.py`, e por fim `sql/setup/02_grants.sql`.
 
-**Python:** `pip install -r etl/pipeline/requirements.txt`, wallet descompactado em
-`etl/pipeline/wallet/`, `.env` preenchido a partir do `.env.example`, rodar de dentro de `etl/pipeline/`.
+**Execuções parciais:** `--api` · `--prata` · `--ouro` · `--modelo` · `--sem-modelo`.
+Tudo idempotente.
 
----
+## 7. M3 / Select AI — resolvido
 
-## 7. M3 / Select AI — o que aconteceu e a rota adotada
+**O caminho oficial (`DBMS_CLOUD_AI`) está quebrado nesta plataforma.** A
+funcionalidade foi entregue chamando o modelo por REST com
+`DBMS_CLOUD.SEND_REQUEST`.
 
-**Resumo: `DBMS_CLOUD_AI` está quebrado nesta plataforma. REST direto funciona e é a rota do M3.**
+Em produção hoje: pacote `PKG_ASK_AI` (`sql/ia/02_ask_ai.sql`), provedor Google
+com modelo `gemma-4-31b-it`, chave e modelo em tabela de configuração `CFG_AI`,
+log de todas as perguntas em `LOG_ASK_AI`, e guarda que aceita apenas `SELECT`.
 
-O caminho oficial (perfil `DBMS_CLOUD_AI` + OCI GenAI) falha com `ORA-20404` apontando para
-`https://inference.generativeai.<regiao>.oci.my$cloud_domain/...` — variável interna não substituída
-pelo domínio real. Reproduzido em 2 instâncias ADB, 3 configurações e 2 provedores; com provedor
-Google a chamada trava até o timeout de 5 min do gateway (aparece como "parsererror" na tela).
-Não é rede nem permissão: `DBMS_CLOUD.SEND_REQUEST` para o mesmo host responde em segundos.
-Cronologia completa e evidências: **`docs/bug-selectai-ora20404.md`**.
+O prompt é montado a partir dos **comentários do dicionário** — melhorar a
+documentação de uma coluna melhora o SQL gerado, sem tocar no código.
 
-**Rota validada (spike aprovado):** chamar o LLM por REST, sem o pacote defeituoso.
-
-```sql
-resp := DBMS_CLOUD.SEND_REQUEST(
-  credential_name => 'GOOGLE_CRED',   -- parâmetro obrigatório; auth real vai no header
-  uri     => 'https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent',
-  method  => DBMS_CLOUD.METHOD_POST,
-  headers => JSON_OBJECT('Content-Type'   VALUE 'application/json',
-                         'x-goog-api-key' VALUE '<CHAVE>'),
-  body    => UTL_RAW.CAST_TO_RAW('{"contents":[{"parts":[{"text":"<PROMPT>"}]}]}'));
-```
-
-- Pré-requisito: ACL para `generativelanguage.googleapis.com` (`DBMS_NETWORK_ACL_ADMIN.APPEND_HOST_ACE`)
-- Modelo: **`gemma-4-31b-it`** — os Gemini 2.0/2.5 retornam 429 (cota zerada no free tier).
-  Sempre listar `GET /v1beta/models` antes de fixar um nome: eles mudam sem aviso
-- Resposta: `candidates[0].content.parts[]` — partes com `"thought": true` são raciocínio;
-  **a resposta final é a parte sem essa flag**
-- Prompt validado: papel ("gerador de SQL para Oracle") + esquema da view + regras
-  ("apenas o SQL, sem markdown, sem `;`") + pergunta → gerou SQL Oracle correto de primeira
-  (subquery com `MAX(competencia)`, `ORDER BY`, `FETCH FIRST`)
-
-**A fazer (#31):** função `ASK_AI(pergunta, modo)` com chave e modelo em tabela de configuração,
-modos `showsql`/`runsql`, guarda aceitando apenas `SELECT`, tratamento de HTTP ≠ 200.
-**A chave usada no spike precisa ser regenerada** (circulou em texto plano).
-
----
+Cronologia completa do diagnóstico, as armadilhas da integração no APEX e o que
+declarar na apresentação: **`docs/bug-selectai-ora20404.md`**.
 
 ## 8. Frentes de trabalho
 
@@ -222,16 +206,20 @@ conteúdo) → permanência média mais robusta · competências RDSP de abr–d
 
 ---
 
-## 9. Pendências conhecidas do repositório
+## 9. Pendências
 
-- **README desatualizado**: a seção "Como reproduzir" cita `sql/03_prata_views` e `sql/04_validacao`,
-  que não existem mais (Prata virou Python); o "Status" ainda marca Prata e Ouro como pendentes.
-- **Bronze de RD e CID sem script versionado**: as tabelas `BRZ_SIH_RD_RAW`, `BRZ_CID_*` existem no
-  banco, mas o DDL/carga não está em `sql/`. Se alguém precisar recriar o ambiente do zero, hoje falta.
-- **`dados/cid/`** não está no repositório (os CSVs da CID-10 estão só locais/no bucket).
-- **Spikes do Select AI** não versionados: a rota que funciona está documentada na §7 deste arquivo.
+**Técnicas**
+- Bateria de 20 perguntas do M3 (#32) — validar e contar acertos usando `LOG_ASK_AI`
+- Diagrama ER (#6) — Data Modeler sobre as tabelas; as FKs já estão declaradas
+- Mapa dos hospitais no APEX — coordenadas prontas em `GLD_OCUPACAO_MENSAL`
+- Sinalizar visualmente ocupação acima de 100% (caso IPq)
+- `sql/testes/` cobre só a Prata; não há arquivo de conferência da Ouro
 
----
+**Entrega (Sprint 2 — 01/09/2026)**
+- PPTX com os tópicos do pitch · vídeo de até 5 min no YouTube
+- Tornar o app APEX público (link funcionando vale 10% da nota)
+- Planilha `Informacoes_Finais_Projeto_Integrantes` · documentação de gestão atualizada
+- ZIP único com todos os entregáveis
 
 ## 10. Perguntas de negócio que o projeto responde
 

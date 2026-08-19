@@ -7,6 +7,8 @@ Cria as views consumidas pelo APEX (M1), K-Means (M2) e Select AI (M3):
   GLD_KPI_REDE           indicadores da rede por competência (KPIs da Tela 1)
   GLD_PERFIL_CLINICO     internações por hospital, faixa etária e capítulo da CID
   GLD_DIAGNOSTICOS       diagnósticos mais frequentes por faixa etária
+  GLD_SAZONALIDADE       ocupação mês a mês, estação do ano e desvio vs. média
+  GLD_REGIONAL           ocupação por zona e bairro da capital
   GLD_FATORES_HOSPITAL   hospital x média do cluster, fator dominante e insight
                          (Telas 2 e 4 — depende da GLD_CLUSTER, criada por analytics/kmeans.py)
 
@@ -69,7 +71,9 @@ cap AS (
   SELECT cnes,
          ROUND(AVG(leitos_sus))    AS leitos_sus,
          ROUND(AVG(uti_total_sus)) AS leitos_uti_sus,
-         MAX(ds_tipo_unidade)      AS tipo_unidade
+         MAX(ds_tipo_unidade)      AS tipo_unidade,
+         MAX(zona)                 AS zona,
+         MAX(no_bairro)            AS bairro
     FROM slv_cnes_leitos
    GROUP BY cnes
 )
@@ -82,6 +86,16 @@ SELECT o.co_cnes,
        c.perm_media, c.pct_diarias_uti, c.pct_urgencia,
        c.pct_alta_complex, c.tx_mortalidade, c.idade_media, c.total_aihs,
        c.val_medio_aih,
+       cap.zona,
+       cap.bairro,
+       -- vindos da API do CNES (JSON): localizacao e estrutura
+       est.latitude,
+       est.longitude,
+       est.tem_centro_cirurgico,
+       est.tem_centro_obstetrico,
+       est.tem_centro_neonatal,
+       est.tem_atividade_ensino,
+       est.turno_atendimento,
        CASE WHEN NVL(c.total_aihs, 0) < 300 THEN 1 ELSE 0 END AS atuacao_sus_residual
   FROM ocup o
   -- GROUP BY co_cnes (e nao DISTINCT co_cnes, nome): o CNES 2084139 aparece
@@ -94,7 +108,8 @@ SELECT o.co_cnes,
          GROUP BY co_cnes) h
     ON h.co_cnes = o.co_cnes
   LEFT JOIN clin c   ON c.co_cnes = o.co_cnes
-  LEFT JOIN cap      ON cap.cnes  = o.co_cnes"""),
+  LEFT JOIN cap      ON cap.cnes  = o.co_cnes
+  LEFT JOIN slv_estabelecimento est ON est.co_cnes = o.co_cnes"""),
 
     ("GLD_OCUPACAO_MENSAL", """
 CREATE OR REPLACE VIEW gld_ocupacao_mensal AS
@@ -124,7 +139,12 @@ SELECT o.co_cnes,
        CASE WHEN NVL(f.atuacao_sus_residual, 1) = 0 THEN
          RANK() OVER (PARTITION BY o.competencia, NVL(f.atuacao_sus_residual, 1)
                       ORDER BY o.taxa_ocupacao DESC)
-       END AS ranking_no_mes
+       END AS ranking_no_mes,
+       -- coordenadas na propria view: o mapa do APEX le tudo de uma fonte so
+       f.zona,
+       f.bairro,
+       f.latitude,
+       f.longitude
   FROM slv_ocupacao o
   LEFT JOIN gld_features_hospital f ON f.co_cnes = o.co_cnes"""),
 
@@ -264,9 +284,9 @@ SELECT co_cnes, nome_estabelecimento, tipo_unidade, leitos_sus,
        -- frase pronta para o card (Telas 2 e 4)
        CASE
          WHEN taxa_media < taxa_cluster THEN
-              'Ocupacao abaixo dos pares do grupo — ha folga de capacidade'
-         WHEN z_max <= 0 THEN 'Abaixo da media dos pares em todas as dimensoes'
-         WHEN z_max < 1  THEN 'Pressao distribuida — nenhuma dimensao se destaca frente aos pares'
+              'Ocupação abaixo dos pares do grupo — há folga de capacidade'
+         WHEN z_max <= 0 THEN 'Abaixo da média dos pares em todas as dimensões'
+         WHEN z_max < 1  THEN 'Pressão distribuída — nenhuma dimensão se destaca frente aos pares'
          WHEN z_max = NVL(z_permanencia,-99) THEN
               'Permanência ' || TO_CHAR(ROUND(100*(perm_media - perm_cluster)
                  / NULLIF(perm_cluster,0))) || '% acima do grupo — gargalo na gestão de altas'
@@ -281,9 +301,9 @@ SELECT co_cnes, nome_estabelecimento, tipo_unidade, leitos_sus,
        END AS insight,
        -- recomendacao de gestao (quadro "Traducao para a gestao")
        CASE
-         WHEN taxa_media < taxa_cluster       THEN 'Capacidade ociosa — candidato a receber demanda pela regulacao'
-         WHEN z_max <= 0                      THEN 'Sem sinal de pressao assistencial'
-         WHEN z_max < 1                       THEN 'Pressao distribuida, sem causa isolada — monitorar'
+         WHEN taxa_media < taxa_cluster       THEN 'Capacidade ociosa — candidato a receber demanda pela regulação'
+         WHEN z_max <= 0                      THEN 'Sem sinal de pressão assistencial'
+         WHEN z_max < 1                       THEN 'Pressão distribuída, sem causa isolada — monitorar'
          WHEN z_max = NVL(z_permanencia,-99)  THEN 'Revisar processo de alta e retaguarda'
          WHEN z_max = NVL(z_gravidade,-99)    THEN 'Avaliar papel de referência regional'
          WHEN z_max = NVL(z_complexidade,-99) THEN 'Avaliar custo e densidade tecnológica'
@@ -361,6 +381,71 @@ SELECT CASE
             WHEN i.idade_anos IS NOT NULL THEN 'Idoso (60 ou mais)'
           END,
           i.cid_principal, d.ds_cid_abrev, d.ds_capitulo"""),
+
+    ("GLD_SAZONALIDADE", """
+CREATE OR REPLACE VIEW gld_sazonalidade AS
+WITH mensal AS (
+  SELECT o.competencia,
+         TO_NUMBER(SUBSTR(o.competencia, 5, 2))  AS nr_mes,
+         TO_NUMBER(SUBSTR(o.competencia, 1, 4))  AS nr_ano,
+         SUM(o.paciente_dia)                     AS paciente_dia,
+         SUM(o.leito_dia)                        AS leito_dia,
+         COUNT(CASE WHEN o.semaforo = 'CRITICO' THEN 1 END) AS criticos
+    FROM gld_ocupacao_mensal o
+   WHERE o.atuacao_sus_residual = 0
+   GROUP BY o.competencia
+),
+inter AS (
+  SELECT i.competencia, COUNT(*) AS internacoes
+    FROM slv_internacao i
+    JOIN gld_features_hospital f
+      ON f.co_cnes = i.co_cnes AND f.atuacao_sus_residual = 0
+   GROUP BY i.competencia
+)
+SELECT m.competencia,
+       m.nr_ano,
+       m.nr_mes,
+       TO_CHAR(TO_DATE(m.competencia,'YYYYMM'),'fmMonth')  AS nome_mes,
+       TO_CHAR(TO_DATE(m.competencia,'YYYYMM'),'fmMon/YY') AS competencia_label,
+       -- estacao pelo hemisferio sul: inverno concentra doenca respiratoria
+       CASE
+         WHEN m.nr_mes IN (12, 1, 2)  THEN 'Verão'
+         WHEN m.nr_mes IN (3, 4, 5)   THEN 'Outono'
+         WHEN m.nr_mes IN (6, 7, 8)   THEN 'Inverno'
+         ELSE 'Primavera'
+       END                                                 AS estacao,
+       ROUND(100 * m.paciente_dia / NULLIF(m.leito_dia,0), 1) AS ocupacao_rede,
+       m.criticos,
+       i.internacoes,
+       -- desvio em pontos percentuais frente a media de todo o periodo
+       ROUND(100 * m.paciente_dia / NULLIF(m.leito_dia,0)
+             - AVG(100 * m.paciente_dia / NULLIF(m.leito_dia,0)) OVER (), 1)
+         AS desvio_vs_media_periodo
+  FROM mensal m
+  LEFT JOIN inter i ON i.competencia = m.competencia"""),
+
+    ("GLD_REGIONAL", """
+CREATE OR REPLACE VIEW gld_regional AS
+WITH loc AS (
+  SELECT cnes,
+         MAX(zona)      AS zona,
+         MAX(no_bairro) AS bairro
+    FROM slv_cnes_leitos
+   GROUP BY cnes
+)
+SELECT o.competencia,
+       l.zona,
+       l.bairro,
+       COUNT(DISTINCT o.co_cnes)                              AS hospitais,
+       SUM(o.leito_dia)                                       AS leito_dia,
+       SUM(o.paciente_dia)                                    AS paciente_dia,
+       ROUND(100 * SUM(o.paciente_dia) / NULLIF(SUM(o.leito_dia),0), 1) AS ocupacao_regiao,
+       COUNT(CASE WHEN o.semaforo = 'CRITICO' THEN 1 END)     AS criticos,
+       COUNT(CASE WHEN o.semaforo = 'ATENCAO' THEN 1 END)     AS atencao
+  FROM gld_ocupacao_mensal o
+  JOIN loc l ON l.cnes = o.co_cnes
+ WHERE o.atuacao_sus_residual = 0
+ GROUP BY o.competencia, l.zona, l.bairro"""),
 ]
 
 # Comentarios do dicionario: alem de documentar, sao lidos pelo
@@ -372,6 +457,17 @@ SELECT CASE
 # Consultaveis em USER_ANNOTATIONS_USAGE. Documentam camada, fonte,
 # grao e a qual modulo do produto cada view serve.
 ANOTACOES = [
+    """ALTER VIEW gld_sazonalidade ANNOTATIONS (ADD OR REPLACE
+         Camada 'Ouro', Grao 'competencia',
+         Fonte 'GLD_OCUPACAO_MENSAL + SLV_INTERNACAO',
+         Modulo 'M2 - Fatores de demanda',
+         Limitacao 'periodo cobre apenas um inverno (2025)')""",
+
+    """ALTER VIEW gld_regional ANNOTATIONS (ADD OR REPLACE
+         Camada 'Ouro', Grao 'competencia x zona x bairro',
+         Fonte 'GLD_OCUPACAO_MENSAL + CNES (CEP e bairro)',
+         Modulo 'M2 - Fatores de demanda',
+         Metodo 'zona derivada do prefixo do CEP do estabelecimento')""",
     """ALTER VIEW gld_perfil_clinico ANNOTATIONS (ADD OR REPLACE
          Camada 'Ouro', Grao 'hospital x competencia x faixa etaria x capitulo CID',
          Fonte 'SLV_INTERNACAO + DIM_CID', Modulo 'M3 - Perguntas em linguagem natural')""",
@@ -402,6 +498,30 @@ ANOTACOES = [
 ]
 
 COMENTARIOS = [
+    "COMMENT ON COLUMN gld_ocupacao_mensal.latitude IS 'Latitude do hospital em grau decimal, para plotagem em mapa'",
+    "COMMENT ON COLUMN gld_ocupacao_mensal.longitude IS 'Longitude do hospital em grau decimal, para plotagem em mapa'",
+    "COMMENT ON COLUMN gld_ocupacao_mensal.zona IS 'Zona da capital: Centro, Zona Norte, Zona Leste, Zona Sul, Zona Oeste ou Extremo Leste'",
+    "COMMENT ON COLUMN gld_ocupacao_mensal.bairro IS 'Bairro do hospital'",
+    "COMMENT ON COLUMN gld_features_hospital.latitude IS 'Latitude do hospital em grau decimal, vinda da API do CNES'",
+    "COMMENT ON COLUMN gld_features_hospital.longitude IS 'Longitude do hospital em grau decimal, vinda da API do CNES'",
+    "COMMENT ON COLUMN gld_features_hospital.zona IS 'Zona da capital onde o hospital esta localizado'",
+    "COMMENT ON COLUMN gld_features_hospital.bairro IS 'Bairro do hospital'",
+    "COMMENT ON COLUMN gld_features_hospital.tem_centro_cirurgico IS 'Sinalizador 1 quando o hospital possui centro cirurgico'",
+    "COMMENT ON COLUMN gld_features_hospital.tem_centro_obstetrico IS 'Sinalizador 1 quando possui centro obstetrico, indica maternidade'",
+    "COMMENT ON COLUMN gld_features_hospital.tem_centro_neonatal IS 'Sinalizador 1 quando possui centro neonatal'",
+    "COMMENT ON COLUMN gld_features_hospital.tem_atividade_ensino IS 'Sinalizador 1 quando o hospital tem atividade de ensino registrada no CNES. Serve para validar o perfil Grandes / ensino identificado pelo modelo'",
+    "COMMENT ON COLUMN gld_features_hospital.turno_atendimento IS 'Turno de funcionamento declarado no CNES'",
+    "COMMENT ON TABLE gld_sazonalidade IS 'Ocupacao da rede mes a mes, com estacao do ano e desvio frente a media do periodo. Responde se existe padrao sazonal, como elevacao no inverno. Grao: uma competencia'",
+    "COMMENT ON COLUMN gld_sazonalidade.estacao IS 'Estacao do ano no hemisferio sul: Verão (dez a fev), Outono (mar a mai), Inverno (jun a ago) ou Primavera (set a nov)'",
+    "COMMENT ON COLUMN gld_sazonalidade.nome_mes IS 'Nome do mes por extenso, para agrupar competencias do mesmo mes em anos diferentes'",
+    "COMMENT ON COLUMN gld_sazonalidade.ocupacao_rede IS 'Ocupacao ponderada da rede na competencia'",
+    "COMMENT ON COLUMN gld_sazonalidade.desvio_vs_media_periodo IS 'Quantos pontos percentuais a ocupacao do mes esta acima ou abaixo da media de todo o periodo analisado'",
+
+    "COMMENT ON TABLE gld_regional IS 'Ocupacao agregada por zona e bairro da capital, por competencia. Base da analise territorial. Grao: competencia x zona x bairro'",
+    "COMMENT ON COLUMN gld_regional.zona IS 'Zona da capital: Centro, Zona Norte, Zona Leste, Zona Sul, Zona Oeste ou Extremo Leste'",
+    "COMMENT ON COLUMN gld_regional.bairro IS 'Bairro do estabelecimento conforme cadastro CNES'",
+    "COMMENT ON COLUMN gld_regional.ocupacao_regiao IS 'Ocupacao ponderada dos hospitais da regiao: soma de paciente-dia dividida pela soma de leito-dia'",
+    "COMMENT ON COLUMN gld_regional.hospitais IS 'Quantidade de hospitais ativos na regiao naquela competencia'",
     "COMMENT ON TABLE gld_perfil_clinico IS 'Perfil epidemiologico das internacoes: quantas internacoes, permanencia e mortalidade por hospital, competencia, faixa etaria e capitulo da CID-10. Grao: hospital x mes x faixa etaria x capitulo'",
     "COMMENT ON COLUMN gld_perfil_clinico.faixa_etaria IS 'Faixa etaria do paciente: Menor de 1 ano, Crianca (1 a 11), Adolescente (12 a 17), Adulto (18 a 59) ou Idoso (60 ou mais)'",
     "COMMENT ON COLUMN gld_perfil_clinico.ds_capitulo IS 'Capitulo da CID-10, agrupa diagnosticos por sistema ou natureza da doenca. Ex.: doencas do aparelho respiratorio, neoplasias, gravidez e parto'",
@@ -542,6 +662,43 @@ SELECT faixa_etaria, ds_cid, internacoes, perm_media, tx_mortalidade
          WHERE faixa_etaria IN ('Crianca (1 a 11)', 'Idoso (60 ou mais)'))
  WHERE rn <= 5
  ORDER BY faixa_etaria, internacoes DESC"""),
+
+    ("Sazonalidade — ocupação por estação", """
+SELECT estacao,
+       COUNT(*) meses,
+       ROUND(AVG(ocupacao_rede),1) ocupacao_media,
+       ROUND(AVG(desvio_vs_media_periodo),1) desvio_medio_pp
+  FROM gld_sazonalidade
+ GROUP BY estacao
+ ORDER BY desvio_medio_pp DESC"""),
+
+    ("Regional — ocupação por zona na última competência", """
+SELECT zona,
+       SUM(hospitais) hospitais,
+       ROUND(100*SUM(paciente_dia)/NULLIF(SUM(leito_dia),0),1) ocupacao,
+       SUM(criticos) criticos
+  FROM gld_regional
+ WHERE competencia = (SELECT MAX(competencia) FROM gld_regional)
+ GROUP BY zona
+ ORDER BY ocupacao DESC"""),
+
+    ("Validação externa do cluster — atividade de ensino no CNES", """
+SELECT c.cluster_nome,
+       COUNT(*) hospitais,
+       SUM(f.tem_atividade_ensino) com_ensino,
+       ROUND(100*AVG(f.tem_atividade_ensino)) pct_com_ensino
+  FROM gld_features_hospital f
+  JOIN gld_cluster c ON c.co_cnes = f.co_cnes
+ WHERE c.cluster_id IS NOT NULL
+ GROUP BY c.cluster_nome
+ ORDER BY pct_com_ensino DESC"""),
+
+    ("Cobertura das coordenadas (mapa)", """
+SELECT COUNT(*) hospitais,
+       COUNT(latitude) com_coordenada,
+       COUNT(*) - COUNT(latitude) sem_coordenada
+  FROM gld_features_hospital
+ WHERE atuacao_sus_residual = 0"""),
 
     ("Distribuição dos fatores de pressão", """
 SELECT fator_dominante, COUNT(*) hospitais

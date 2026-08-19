@@ -139,7 +139,105 @@ Leitura dos grupos:
 
 ---
 
-## 6. Visualização (PCA)
+## 6. Validação externa (o que dá pra provar, e o que não dá)
+
+Duas métricas usadas até aqui — cotovelo e silhouette — são **internas**: medem
+se os pontos ficaram geometricamente bem agrupados olhando só para os próprios
+dados de entrada. Isso confirma que o algoritmo convergiu para uma estrutura
+consistente, mas não prova que essa estrutura corresponde a alguma coisa real
+no mundo. Um K-Means sempre encontra grupos, inclusive em ruído puro.
+
+**Validação externa** é diferente: compara o cluster contra uma variável
+**independente**, que o modelo nunca viu durante o treino. Se bater, é evidência
+de que o agrupamento capturou um padrão real — não é o modelo "confirmando a si
+mesmo".
+
+### O teste que temos
+
+A API do CNES (`brz_cnes_api_raw` → `slv_estabelecimento`) traz o campo oficial
+`codigo_atividade_ensino_unidade`, que classifica cada estabelecimento como
+unidade de ensino/pesquisa ou não. Essa variável:
+
+- não entrou em nenhuma das 6 features do K-Means (seção 3);
+- vem de um cadastro público, preenchido pelo próprio hospital junto ao
+  Ministério da Saúde — fonte independente da nossa análise.
+
+Depois do cluster pronto, cruzamos `cluster_nome` × `tem_atividade_ensino`:
+
+| Cluster | % oficialmente ensino (CNES) |
+|---|---|
+| Grandes / ensino | **100%** |
+| Pequenos especializados | 64% |
+| Gerais / urgência | 46% |
+| Longa permanência | 25% |
+
+Os 8 hospitais que o algoritmo agrupou por porte, complexidade e UTI — sem
+nenhuma informação sobre ensino — são **exatamente** os 8 que o CNES classifica
+como unidades de ensino. Isso é o mais próximo de uma prova que este projeto
+tem: uma correlação perfeita com um rótulo que o modelo não usou.
+
+### Segundo teste: tipo de unidade (CNES)
+
+O campo `ds_tipo_unidade` do CNES — também ausente das features do modelo —
+classifica o estabelecimento como HOSPITAL GERAL, HOSPITAL ESPECIALIZADO e
+outros. Cruzando contra os clusters:
+
+| Cluster | % ESPECIALIZADO | % GERAL |
+|---|---|---|
+| Pequenos especializados | **71%** | 29% |
+| Longa permanência | 63% | 38% |
+| Grandes / ensino | 38% | **63%** |
+| Gerais / urgência | 19% | **81%** |
+
+Os dois extremos confirmam os rótulos: o cluster que chamamos de "Gerais /
+urgência" é o mais oficialmente *geral* da rede (81%), e o "Pequenos
+especializados" é o mais oficialmente *especializado* (71%).
+
+Esta validação é **mais fraca que a anterior**: a correlação não é perfeita e as
+categorias se sobrepõem — 19% dos "Gerais / urgência" são classificados como
+especializados no CNES. É evidência direcional, não prova.
+
+"Grandes / ensino" aparecer como majoritariamente *geral* (63%) não contradiz o
+agrupamento: são hospitais gerais de grande porte com atividade de ensino
+(HC-FMUSP, Santa Marcelina), o que é coerente com a validação da seção
+anterior.
+
+"Longa permanência" fica em 63% especializado — próximo dos "Pequenos
+especializados" (71%), portanto o campo **não discrimina** esse cluster.
+Continua sem validação externa: psiquiatria e reabilitação são de fato
+especializadas, mas isso não separa esse grupo dos demais. Validá-lo exigiria
+outra fonte, como o cadastro de leitos psiquiátricos ou da RAPS.
+
+### O que isso NÃO cobre
+
+Somando os dois testes, três dos quatro clusters têm alguma validação externa —
+mas com forças diferentes, e nenhuma delas prova o modelo inteiro:
+
+| Cluster | Validação disponível | Natureza |
+|---|---|---|
+| Grandes / ensino | atividade de ensino (CNES) — correlação perfeita | **Externa, forte** |
+| Gerais / urgência | tipo de unidade (CNES) — 81% HOSPITAL GERAL | **Externa, parcial** |
+| Pequenos especializados | tipo de unidade (CNES) — 71% HOSPITAL ESPECIALIZADO | **Externa, parcial** |
+| Longa permanência | nenhuma fonte independente discriminante | interna + leitura qualitativa |
+
+O cluster **Longa permanência** é o que fica sem prova. O que o sustenta é (a) a
+coerência interna do K-Means (silhouette, seção 4) e (b) o fato de os hospitais
+que caem nele fazerem sentido clínico ao serem inspecionados por nome — o grupo
+reúne Instituto de Psiquiatria, Lucy Montoro (reabilitação) e o hospital do
+sistema penitenciário. É um indício forte, mas é leitura qualitativa, não um
+teste estatístico contra um rótulo independente. A formulação correta para ele é
+**"provavelmente correto"**, não "confirmado".
+
+Vale registrar também o que **nenhum** dos testes cobre: eles validam que os
+grupos correspondem a categorias reais de estabelecimento, não que a
+**comparação de desempenho dentro do grupo** seja a mais justa possível. Essa
+premissa — de que hospitais do mesmo perfil são pares adequados para
+benchmarking — é razoável e é a prática usual em saúde, mas não foi testada
+empiricamente neste projeto.
+
+---
+
+## 7. Visualização (PCA)
 
 O espaço do modelo tem 6 dimensões, impossível de desenhar. Aplicamos **PCA**
 para projetar em 2 componentes, preservando **54,3%** da variância — as
@@ -152,7 +250,7 @@ estrutura, não para concluir sobre separação.
 
 ---
 
-## 7. Fator dominante — método de classificação (card #39)
+## 8. Fator dominante — método de classificação (card #39)
 
 **Método adotado: z-score dentro do cluster.** Não usamos limiar fixo.
 
@@ -201,7 +299,7 @@ da causa e a decisão sobre a intervenção permanecem com a gestão da unidade.
 
 ---
 
-## 8. Limitações
+## 9. Limitações
 
 1. **Recorte temporal**: as features agregam 17 competências. Hospitais que
    mudaram de perfil no período aparecem com a média, não com a tendência.
@@ -214,10 +312,14 @@ da causa e a decisão sobre a intervenção permanecem com a gestão da unidade.
 5. **Ocupação acima de 100%** em alguns hospitais indica leitos subdeclarados no
    CNES, não superlotação real. O modelo usa a taxa limitada a 100%; o painel
    exibe o valor real com sinalização.
+6. **Validação externa parcial** (seção 6): só o cluster "Grandes / ensino" foi
+   confirmado contra um rótulo independente. Os outros três se apoiam em
+   coerência interna (silhouette) e leitura qualitativa dos hospitais — são
+   plausíveis, não comprovados.
 
 ---
 
-## 9. Como reproduzir
+## 10. Como reproduzir
 
 ```
 python etl/pipeline/prata_transform.py    # camada Prata

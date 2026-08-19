@@ -1,29 +1,53 @@
-# Pipeline Python — conexão ADB + camadas Prata e Ouro
+# Pipeline Python — ingestão da API e camadas Prata e Ouro
+
+Orquestra as etapas que montam o banco depois que os CSVs já estão na Bronze.
+Python coordena; o SQL executa dentro do banco (o dado não viaja).
 
 ## Setup (uma vez)
 
 1. `pip install -r requirements.txt`
-2. Descompacte o conteúdo do wallet do ADB (Database connection → Download wallet)
-   dentro de `pipeline/wallet/` (os arquivos tnsnames.ora, cwallet.sso etc.)
+2. Descompacte o wallet do ADB (Database connection → Download wallet) dentro de
+   `wallet/` — os arquivos `tnsnames.ora`, `cwallet.sso` etc.
 3. Copie `.env.example` para `.env` e preencha as senhas (o `.env` não vai pro Git)
 
-## Uso (a partir desta pasta)
+## Uso
 
 ```bash
-set -a; source .env; set +a
-python prata_transform.py   # Bronze → Prata (SLV_INTERNACAO)
-python ouro_transform.py    # Prata → Ouro (GLD_OCUPACAO_MENSAL, GLD_FEATURES_HOSPITAL)
+python run_pipeline.py                # tudo: api → prata → ouro → modelo
+python run_pipeline.py --sem-modelo   # sem o K-Means
+python run_pipeline.py --ouro         # só a camada Ouro (o caso mais comum)
+python run_pipeline.py --api          # só a ingestão da API
 ```
+
+Roda de qualquer diretório: `python etl/pipeline/run_pipeline.py`.
+O orquestrador carrega o `.env` sozinho, cronometra cada etapa e interrompe se
+alguma falhar — evitando rodar a Ouro sobre uma Prata quebrada.
+
+## Ordem de dependência
+
+```
+CSVs (sql/bronze/) ──▶ bronze_api_cnes.py ──▶ prata_transform.py ──▶ ouro_transform.py
+                                                                             ▲
+                                              analytics/kmeans.py ───────────┘
+                                              (GLD_CLUSTER; as views de
+                                               fatores só têm dado depois dele)
+```
+
+A etapa da API depende da Bronze dos CSVs: ela percorre os CNES que já existem em
+`BRZ_CNES_LEITOS_RAW` e complementa cada um — não traz estabelecimento novo.
 
 ## Arquivos
 
 | Arquivo | Papel |
 |---|---|
-| `db.py` | Conexão única com o ADB via wallet (usada por todos os scripts e pelo notebook do K-Means) |
-| `prata_transform.py` | Padroniza o microdado SIH-RD: recorte capital, tipos, domínios → `SLV_INTERNACAO` |
-| `ouro_transform.py` | Métricas de negócio: ocupação mensal com semáforo/tendência e features por hospital pro K-Means |
+| `db.py` | Conexão única com o ADB via wallet — usada por todos os scripts e pelo notebook do K-Means |
+| `run_pipeline.py` | Orquestrador: executa as etapas na ordem, com cronômetro e parada em erro |
+| `bronze_api_cnes.py` | Busca o cadastro do CNES na API de dados abertos e grava o JSON cru em `BRZ_CNES_API_RAW` |
+| `prata_transform.py` | Bronze → Prata: recorte da capital, tipos, domínios, parse do JSON, chaves e comentários |
+| `ouro_transform.py` | Prata → Ouro: 8 views de negócio, comentários e annotations |
 
-No Colab: upload do wallet.zip + `os.environ["ADB_PASSWORD"]=...` e `from db import get_connection`.
+No Colab: upload do `wallet.zip`, definir `os.environ["ADB_PASSWORD"]` e
+`from db import get_connection`.
 
 ## Regra de negócio: atuação SUS residual
 
