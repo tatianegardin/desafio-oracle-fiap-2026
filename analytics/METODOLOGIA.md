@@ -25,11 +25,11 @@ O módulo resolve isso em duas etapas:
 
 ## 2. Universo analisado
 
-Partimos de 84 hospitais com leito SUS e movimento registrado em SP capital
+Partimos de 83 hospitais com leito SUS e movimento registrado em SP capital
 (jan/2025 – mai/2026, 17 competências).
 
 **Critério de atuação SUS ativa:** hospitais com `total_aihs < 300` no período
-são classificados como **atuação residual** e excluídos do modelo — restam **79**.
+são classificados como **atuação residual** e excluídos do modelo — restam **78**.
 
 Justificativa (não é corte arbitrário):
 
@@ -97,7 +97,7 @@ Três critérios, aplicados em conjunto:
 **Decisão: K = 4.**
 
 O silhouette tende a premiar fragmentação — valores mais altos aparecem quando
-grupos pequenos e isolados se separam. Com 79 hospitais, K=6 produziria grupos de
+grupos pequenos e isolados se separam. Com 78 hospitais, K=6 produziria grupos de
 poucas unidades sem identidade clínica reconhecível. Como a diferença entre 0,377
 e 0,401 é pequena e o cotovelo aponta a mesma região, o desempate foi pela
 capacidade de nomear e comunicar os grupos — que é o requisito do benchmarking:
@@ -120,7 +120,7 @@ maior porte → "Grandes / ensino"), nunca de um índice fixo.
 | Grupo | n | Leitos SUS | Permanência | Urgência | Alta complex. | UTI |
 |---|---|---|---|---|---|---|
 | Grandes / ensino | 8 | 684 | 6,2 d | 51% | 42% | 28% |
-| Gerais / urgência | 49 | 182 | 5,6 d | 83% | 2% | 10% |
+| Gerais / urgência | 48 | 182 | 5,6 d | 83% | 2% | 10% |
 | Pequenos especializados | 14 | 81 | 4,7 d | 30% | 41% | 10% |
 | Longa permanência | 8 | 162 | 22,6 d | 0,3% | 0% | 0% |
 
@@ -135,7 +135,8 @@ Leitura dos grupos:
 - **Longa permanência** — psiquiatria e reabilitação. O algoritmo isolou esse
   grupo sem nenhuma informação sobre especialidade, apenas pelo padrão de
   permanência (22,6 dias contra ~5 dos demais) e ausência total de UTI e alta
-  complexidade. É a validação mais forte do agrupamento.
+  complexidade. A separação é nítida nos dados, embora seja o único cluster sem
+  validação externa independente (ver seção 6).
 
 ---
 
@@ -185,9 +186,11 @@ outros. Cruzando contra os clusters:
 | Cluster | % ESPECIALIZADO | % GERAL |
 |---|---|---|
 | Pequenos especializados | **71%** | 29% |
-| Longa permanência | 63% | 38% |
+| Longa permanência | 62% | 38% |
 | Grandes / ensino | 38% | **63%** |
 | Gerais / urgência | 19% | **81%** |
+
+Percentuais arredondados; podem somar 101% em grupos de 8 hospitais.
 
 Os dois extremos confirmam os rótulos: o cluster que chamamos de "Gerais /
 urgência" é o mais oficialmente *geral* da rede (81%), e o "Pequenos
@@ -202,7 +205,7 @@ agrupamento: são hospitais gerais de grande porte com atividade de ensino
 (HC-FMUSP, Santa Marcelina), o que é coerente com a validação da seção
 anterior.
 
-"Longa permanência" fica em 63% especializado — próximo dos "Pequenos
+"Longa permanência" fica em 62% especializado — próximo dos "Pequenos
 especializados" (71%), portanto o campo **não discrimina** esse cluster.
 Continua sem validação externa: psiquiatria e reabilitação são de fato
 especializadas, mas isso não separa esse grupo dos demais. Validá-lo exigiria
@@ -268,9 +271,11 @@ z = (valor do hospital − média do cluster) ÷ desvio-padrão do cluster
 | Gravidade | `tx_mortalidade` | mortalidade % |
 | Complexidade | `val_medio_aih` | valor médio da AIH (R$) |
 
-O **maior z-score** define o fator dominante. Se nenhum ultrapassa **0,5**, o
-hospital é classificado como `EQUILIBRADO` — sem esse piso, um hospital sem
-desvio relevante receberia um "fator dominante" que seria apenas ruído.
+O **maior z-score** define o fator dominante. Se nenhum ultrapassa **1,0**, o
+hospital é classificado como `MULTIFATORIAL` — sem esse piso, um hospital sem
+desvio relevante receberia um "fator dominante" que seria apenas ruído. Quando
+o maior z-score é negativo ou zero, o hospital está abaixo dos pares em todas
+as dimensões e recebe `SEM PRESSAO`.
 
 **Por que z-score e não limiar fixo ou percentil:**
 
@@ -282,7 +287,7 @@ desvio relevante receberia um "fator dominante" que seria apenas ruído.
   percentuais) e não expressam magnitude — apenas ordem.
 - **Z-score** expressa a distância em unidades de desvio-padrão do próprio grupo,
   é comparável entre dimensões de escalas diferentes e permite o piso de
-  relevância (0,5). A limitação é a sensibilidade a valores extremos em grupos
+  relevância (1,0). A limitação é a sensibilidade a valores extremos em grupos
   pequenos, mitigada pela exclusão dos hospitais de atuação residual.
 
 **Saídas da view `GLD_FATORES_HOSPITAL`:** além do `fator_dominante` e dos quatro
@@ -312,16 +317,18 @@ da causa e a decisão sobre a intervenção permanecem com a gestão da unidade.
 5. **Ocupação acima de 100%** em alguns hospitais indica leitos subdeclarados no
    CNES, não superlotação real. O modelo usa a taxa limitada a 100%; o painel
    exibe o valor real com sinalização.
-6. **Validação externa parcial** (seção 6): só o cluster "Grandes / ensino" foi
-   confirmado contra um rótulo independente. Os outros três se apoiam em
-   coerência interna (silhouette) e leitura qualitativa dos hospitais — são
-   plausíveis, não comprovados.
+6. **Validação externa parcial** (seção 6): "Grandes / ensino" tem correlação
+   perfeita com o rótulo de atividade de ensino do CNES; "Gerais / urgência" e
+   "Pequenos especializados" têm validação direcional pelo tipo de unidade. Só
+   "Longa permanência" fica sem fonte independente discriminante, apoiado em
+   coerência interna e leitura qualitativa.
 
 ---
 
 ## 10. Como reproduzir
 
 ```
+python etl/pipeline/bronze_api_cnes.py    # cadastro do CNES (JSON)
 python etl/pipeline/prata_transform.py    # camada Prata
 python etl/pipeline/ouro_transform.py     # views Ouro (features)
 python analytics/kmeans.py                # modelo + GLD_CLUSTER
