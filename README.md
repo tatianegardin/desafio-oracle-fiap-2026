@@ -95,6 +95,7 @@ wallet baixado, Python 3.10+.
 Os `.dbc` do SIH precisam ser convertidos antes:
 
 ```bash
+pip install -r etl/conversao/requirements.txt
 python etl/conversao/dbc_to_csv_batch.py
 ```
 

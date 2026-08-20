@@ -28,6 +28,7 @@ Requer o .env preenchido nesta pasta (ver .env.example).
 """
 
 import argparse
+import os
 import runpy
 import sys
 import time
@@ -37,29 +38,30 @@ PIPELINE = Path(__file__).resolve().parent
 RAIZ = PIPELINE.parent.parent
 
 ETAPAS = [
-    ("api",    PIPELINE / "bronze_api_cnes.py", "API CNES -> Bronze (cadastro em JSON)"),
+    ("api",    PIPELINE / "bronze_api_cnes.py",
+     "API CNES -> Bronze (cadastro em JSON)"),
     ("prata",  PIPELINE / "prata_transform.py", "Bronze -> Prata (tabelas SLV_*)"),
-    ("ouro",   PIPELINE / "ouro_transform.py",  "Prata -> Ouro (views GLD_*, comentarios, annotations)"),
+    ("ouro",   PIPELINE / "ouro_transform.py",
+     "Prata -> Ouro (views GLD_*, comentarios, annotations)"),
     ("modelo", RAIZ / "analytics" / "kmeans.py", "K-Means -> GLD_CLUSTER"),
 ]
 
 
 def carregar_env() -> None:
-    """Le o .env de etl/pipeline sem exigir python-dotenv."""
+    """Le o .env de etl/pipeline. Parser proprio, sem depender de
+    python-dotenv: garante o mesmo comportamento em qualquer maquina."""
     env = PIPELINE / ".env"
     if not env.exists():
         return
-    try:
-        from dotenv import load_dotenv
-        load_dotenv(env)
-    except ImportError:
-        import os
-        for linha in env.read_text(encoding="utf-8").splitlines():
-            linha = linha.strip()
-            if not linha or linha.startswith("#") or "=" not in linha:
-                continue
-            chave, valor = linha.split("=", 1)
-            os.environ.setdefault(chave.strip(), valor.strip().strip('"').strip("'"))
+    for linha in env.read_text(encoding="utf-8").splitlines():
+        linha = linha.strip()
+        if not linha or linha.startswith("#") or "=" not in linha:
+            continue
+        chave, valor = linha.split("=", 1)
+        # atribuicao direta (nao setdefault): o .env do projeto tem
+        # precedencia sobre variaveis ja exportadas no shell, senao
+        # a conexao pode ir para outro banco sem aviso.
+        os.environ[chave.strip()] = valor.strip().strip('"').strip("'")
 
 
 def executar(caminho: Path, descricao: str) -> float:
@@ -77,14 +79,17 @@ def executar(caminho: Path, descricao: str) -> float:
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Pipeline HOSPCHECK SP")
-    p.add_argument("--api",    action="store_true", help="ingestao da API do CNES (JSON)")
+    p.add_argument("--api",    action="store_true",
+                   help="ingestao da API do CNES (JSON)")
     p.add_argument("--prata",  action="store_true", help="camada Prata")
     p.add_argument("--ouro",   action="store_true", help="camada Ouro")
     p.add_argument("--modelo", action="store_true", help="K-Means")
-    p.add_argument("--sem-modelo", action="store_true", help="tudo menos o K-Means")
+    p.add_argument("--sem-modelo", action="store_true",
+                   help="tudo menos o K-Means")
     args = p.parse_args()
 
-    escolhidas = {n for n in ("api", "prata", "ouro", "modelo") if getattr(args, n)}
+    escolhidas = {n for n in ("api", "prata", "ouro",
+                              "modelo") if getattr(args, n)}
     if not escolhidas:
         escolhidas = ({"api", "prata", "ouro"} if args.sem_modelo
                       else {"api", "prata", "ouro", "modelo"})

@@ -251,8 +251,11 @@ END pkg_ask_ai;
 --    O pacote roda com privilegios do dono (ADMIN), entao o
 --    workspace nao precisa de acesso a cfg_ai nem as views.
 -- ------------------------------------------------------------
-GRANT EXECUTE ON pkg_ask_ai TO hospcheck_app;
-CREATE OR REPLACE SYNONYM hospcheck_app.pkg_ask_ai FOR admin.pkg_ask_ai;
+-- Parsing schema da aplicacao APEX. NAO usar hospcheck_app: aquele
+-- schema foi criado por engano no inicio do projeto e nao e usado
+-- por nada (ver comentario em sql/setup/02_grants.sql).
+GRANT EXECUTE ON pkg_ask_ai TO wksp_hospcheck;
+CREATE OR REPLACE SYNONYM wksp_hospcheck.pkg_ask_ai FOR admin.pkg_ask_ai;
 
 -- ------------------------------------------------------------
 -- 5. Teste
