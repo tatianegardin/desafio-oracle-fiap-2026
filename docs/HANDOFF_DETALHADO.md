@@ -1,4 +1,4 @@
-# HOSPCHECK SP — Handoff (04/ago/2026)
+# HOSPCHECK SP — Handoff (19/ago/2026)
 
 Contexto completo do projeto para quem entra agora (humano ou IA).
 Reflete o que está **de fato** neste repositório e no banco.
@@ -30,7 +30,7 @@ Semáforo (ref. ANS): <70% OK · 70–85% ATENCAO · >85% CRITICO
 ```
 
 **Âncoras do pitch:** 172 hospitais cadastrados / ~102 ativos (gap 40%) · 15.487 leitos SUS ·
-63,4 mil internações/mês. Nosso cruzamento: 84 hospitais casados, 83 com taxa calculável.
+63,4 mil internações/mês. Nosso cruzamento: 83 hospitais no período, 78 com atuação SUS ativa.
 
 **Entrega ~28/ago.** Board: `github.com/users/tatianegardin/projects/4`.
 Épicos: E1 Banco · E2 ETL · E3 Analytics · E4 APEX · E5 Select AI · E6 Entrega.
@@ -111,23 +111,25 @@ Comentários e annotations aplicados a cada execução.
 ### Ouro — views (criadas por `etl/pipeline/ouro_transform.py`)
 | Objeto | Grão | Serve a |
 |---|---|---|
-| `GLD_OCUPACAO_MENSAL` | hospital × mês | Tela 1 — taxa, semáforo, LAG, média móvel, ranking, **lat/long, zona, bairro** |
-| `GLD_KPI_REDE` | competência | Tela 1 — KPIs da rede |
+| `GLD_OCUPACAO_MENSAL` | hospital × mês | Visão Geral — taxa, semáforo, LAG, média móvel, ranking, **lat/long, zona, bairro** |
+| `GLD_KPI_REDE` | competência | Visão Geral e Home — KPIs da rede |
 | `GLD_FEATURES_HOSPITAL` | hospital | matriz do K-Means + atributos da API |
-| `GLD_FATORES_HOSPITAL` | hospital | Telas 2 e 4 — z-score no cluster, fator dominante, insight, recomendação |
+| `GLD_FATORES_HOSPITAL` | hospital | Benchmarking e Fatores de Pressão — z-score no cluster, fator dominante, insight, recomendação |
 | `GLD_PERFIL_CLINICO` | hospital × mês × faixa etária × capítulo CID | M3 — perguntas epidemiológicas |
 | `GLD_DIAGNOSTICOS` | faixa etária × CID | M3 — o que mais interna cada faixa |
-| `GLD_SAZONALIDADE` | competência | Tela 4 — estação do ano e desvio vs. média |
-| `GLD_REGIONAL` | competência × zona × bairro | Tela 4 — ocupação por território |
+| `GLD_SAZONALIDADE` | competência | análise de sazonalidade (não virou tela — efeito fraco no período) |
+| `GLD_REGIONAL` | competência × zona × bairro | Distribuição Regional — ocupação por território |
 
 `GLD_CLUSTER` (tabela) é gravada por `analytics/kmeans.py`.
 `GLD_FATORES_HOSPITAL` usa `FORCE` — nasce inválida e se valida sozinha quando a
 `GLD_CLUSTER` aparece.
 
 ### Números de sanidade
-- 84 hospitais no painel · 79 ativos · 5 com atuação SUS residual (< 300 AIHs)
-- Última competência: 18 críticos · 17 atenção · 42 adequados · 3 residuais
-- Clusters: Gerais/urgência 49 · Pequenos especializados 14 · Longa permanência 8 · Grandes/ensino 8
+- 83 hospitais no período · 78 ativos · 5 com atuação SUS residual (< 300 AIHs)
+- Na competência 05/2026: 80 hospitais com movimento — 18 críticos · 17 atenção
+  · 42 adequados · 3 residuais
+- Clusters: Gerais/urgência 48 · Pequenos especializados 14 · Longa permanência 8
+  · Grandes/ensino 8
 - Ocupação por zona (mai/26): Extremo Leste 80,7% · Centro 52,3%
 - Sazonalidade: Inverno +1,3 p.p. · Verão −1,0 p.p. frente à média do período
 - IPq-HCFMUSP com ~160%: leitos subdeclarados no CNES — achado conhecido, não corrigir
@@ -187,22 +189,23 @@ declarar na apresentação: **`docs/bug-selectai-ora20404.md`**.
 
 ## 8. Frentes de trabalho
 
-**APEX (E4 — prioridade 1).** Workspace no ADB principal → app → Página 1: KPI cards (contagem por
-`semaforo` na última competência), Interactive Report do ranking com badge colorido, gráfico de
-tendência (`media_movel_3m`). Consumir **apenas as views `GLD_*`**, nunca Prata/Bronze direto.
-Página 2 (Benchmarking) depende do `GLD_CLUSTER`.
+**APEX (E4) — concluído.** Seis páginas no workspace `WKSP_HOSPCHECK`, app 100,
+consumindo apenas views `GLD_*`:
 
-**K-Means (E3).** Colab → `from db import get_connection, read_df` →
-`read_df("SELECT * FROM gld_features_hospital")` → tratar NULLs (nem todo hospital tem RD) →
-StandardScaler (escalas muito diferentes: leitos 5–900, taxa 0–100) → elbow K=2..10 (esperado K≈4-5)
-→ gravar `co_cnes` + cluster em `GLD_CLUSTER` → z-score do hospital vs média do cluster para os
-fatores de pressão (#38/#39). Plano B oficial: agrupamento por porte em SQL (#23).
+| Página | Conteúdo |
+|---|---|
+| 1 — Home | capa: contexto, método, KPIs da rede, limitações declaradas |
+| 2 — Visão Geral | filtros, 4 KPIs, semáforo de 4 faixas, tendência com linha de crítico, ranking |
+| 3 — Benchmarking por Cluster | scatter PCA dos 4 grupos, card do hospital vs pares, insight automático |
+| 4 — Pergunte à IA | campo livre + `PKG_ASK_AI`, painel do SQL gerado |
+| 5 — Fatores de Pressão | z-score no cluster, 9 colunas, distribuição por fator |
+| 6 — Distribuição Regional | mapa dos 80 hospitais por semáforo, ocupação por zona |
+
+**K-Means (E3) — concluído.** 4 clusters sobre 78 hospitais ativos. Método,
+escolha do K e validação externa em `analytics/METODOLOGIA.md`.
 
 **Dados extras (opcional).** AIHs pagas por hospital × mês no TabNet (mesma tabulação, outro
-conteúdo) → permanência média mais robusta · competências RDSP de abr–dez/25 · `GLD_PERFIL_CLINICO`.
-
-**Board/entrega (E6).** Marcar concluídos: #3 #4 #5 #14 #15 #16 #18 #19 #30 · #17 parcial ·
-#31 re-escopado para "função ASK_AI via REST". Diagrama ER (#6) no Data Modeler.
+conteúdo) → permanência média mais robusta · competências RDSP de abr–dez/25.
 
 ---
 
@@ -211,9 +214,9 @@ conteúdo) → permanência média mais robusta · competências RDSP de abr–d
 **Técnicas**
 - Bateria de 20 perguntas do M3 (#32) — validar e contar acertos usando `LOG_ASK_AI`
 - Diagrama ER (#6) — Data Modeler sobre as tabelas; as FKs já estão declaradas
-- Mapa dos hospitais no APEX — coordenadas prontas em `GLD_OCUPACAO_MENSAL`
-- Sinalizar visualmente ocupação acima de 100% (caso IPq)
 - `sql/testes/` cobre só a Prata; não há arquivo de conferência da Ouro
+- Instituto Suel Abujamra tem 2 meses de dado em 17 e não é marcado como residual
+  (a régua olha só `total_aihs`, não `meses_com_dado`) — limitação conhecida
 
 **Entrega (Sprint 2 — 01/09/2026)**
 - PPTX com os tópicos do pitch · vídeo de até 5 min no YouTube

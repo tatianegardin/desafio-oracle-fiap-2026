@@ -120,6 +120,12 @@ SELECT o.co_cnes,
        o.paciente_dia,
        o.leito_dia,
        o.taxa_ocupacao,
+      -- NVL(..., 1): o default assume RESIDUAL quando o LEFT JOIN nao acha
+       -- par. Parece invertido — ausencia de dado viraria evidencia de
+       -- residualidade — mas o caso e inalcancavel: GLD_FEATURES_HOSPITAL e
+       -- construida a partir da propria SLV_OCUPACAO, entao todo hospital de
+       -- uma existe na outra e o JOIN nunca fica orfao. Se um dia as duas
+       -- origens divergirem, trocar para 0 (na duvida, entra no semaforo).
        NVL(f.atuacao_sus_residual, 1) AS atuacao_sus_residual,
        CASE
          WHEN NVL(f.atuacao_sus_residual, 1) = 1 THEN 'RESIDUAL'

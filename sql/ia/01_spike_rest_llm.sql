@@ -17,6 +17,9 @@
 -- ============================================================
 
 -- ------------------------------------------------------------
+-- NOTA: a ACL (secao 1) e a credencial (secao 2) foram extraidas
+-- para sql/setup/03_acl_llm.sql — use aquele script para montar o
+-- ambiente. O que segue aqui e registro da exploracao original.
 -- 1. ACL — autorizar o banco a alcancar a API (uma vez por usuario)
 --    A ACL e por PRINCIPAL: cada usuario que for chamar precisa
 --    da sua (ajustar principal_name).

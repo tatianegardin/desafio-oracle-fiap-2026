@@ -2,6 +2,7 @@
 # manter só a pasta; os arquivos ficam locais / no Object Storage
 dados/sihsus/*
 !dados/sihsus/.gitkeep
+!dados/sihsus/LEIA-ME.md
 *.dbc
 *.zip
 

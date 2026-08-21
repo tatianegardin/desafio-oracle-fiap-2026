@@ -71,7 +71,7 @@ Python (`oracledb`, `pandas`, `scikit-learn`, `matplotlib`) · LLM via REST para
 
 ```
 sql/
-  setup/          credencial DBMS_CLOUD e grants
+  setup/          credencial DBMS_CLOUD, grants e ACL do provedor de IA
   bronze/         DDL e carga dos CSVs (COPY_DATA)
   ia/             spike e pacote PKG_ASK_AI (M3)
   testes/         consultas de conferência
@@ -95,6 +95,7 @@ wallet baixado, Python 3.10+.
 Os `.dbc` do SIH precisam ser convertidos antes:
 
 ```bash
+pip install -r etl/conversao/requirements.txt
 python etl/conversao/dbc_to_csv_batch.py
 ```
 
@@ -122,10 +123,12 @@ python run_pipeline.py
 Executa, na ordem: ingestão da API do CNES (JSON) → Prata → Ouro → K-Means.
 Cada etapa imprime validações ao final.
 
-**4. Liberar o acesso do APEX:**
+**4. Liberar o acesso do APEX e habilitar o M3:**
 
 ```
-sql/setup/02_grants.sql
+sql/setup/02_grants.sql      (acesso do APEX às views Ouro)
+sql/setup/03_acl_llm.sql     (ACL de rede + credencial do provedor de IA)
+sql/ia/02_ask_ai.sql         (pacote PKG_ASK_AI — preencher a chave em CFG_AI)
 ```
 
 **Execuções parciais:** `--api` · `--prata` · `--ouro` · `--modelo` · `--sem-modelo`.
@@ -145,8 +148,14 @@ As views Ouro usam `CREATE OR REPLACE`, então rodar de novo é seguro e idempot
 - [x] Bronze — 4 fontes carregadas (relacional, JSON e CSV)
 - [x] Prata — 6 tabelas com tipos, domínios, chaves e relacionamentos
 - [x] Ouro — 8 views de negócio, com comentários e annotations no dicionário
-- [x] M1 — Painel de ocupação no APEX
+- [x] M1 — Painel de ocupação no APEX (6 páginas)
 - [x] M2 — K-Means com 4 perfis + fatores de pressão
 - [x] M3 — Perguntas em linguagem natural gerando SQL
-- [ ] Mapa dos hospitais (coordenadas já disponíveis)
+- [x] Mapa dos hospitais e análise regional por zona
 - [ ] Bateria de validação do M3 e diagrama ER
+
+## Licença
+
+Código sob licença MIT (ver `LICENSE`). Os dados utilizados são públicos,
+provenientes do DATASUS e do Ministério da Saúde, e mantêm suas respectivas
+condições de uso.
