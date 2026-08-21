@@ -151,3 +151,9 @@ As views Ouro usam `CREATE OR REPLACE`, então rodar de novo é seguro e idempot
 - [x] M3 — Perguntas em linguagem natural gerando SQL
 - [ ] Mapa dos hospitais (coordenadas já disponíveis)
 - [ ] Bateria de validação do M3 e diagrama ER
+
+## Licença
+
+Código sob licença MIT (ver `LICENSE`). Os dados utilizados são públicos,
+provenientes do DATASUS e do Ministério da Saúde, e mantêm suas respectivas
+condições de uso.

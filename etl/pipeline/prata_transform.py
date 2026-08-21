@@ -106,6 +106,11 @@ SELECT CAST(LPAD(REGEXP_SUBSTR(estab_cidade, '^\\d+'), 7, '0') AS VARCHAR2(7)) A
        CAST(competencia AS VARCHAR2(6)) AS competencia,
        TO_NUMBER(dias)                                        AS dias_perm
   FROM brz_sih_tabnet_raw
+  -- As competencias de 2024 (out a dez) vem no arquivo do TabNet e entram
+  -- aqui, mas nao aparecem nas views da Ouro: o JOIN com SLV_CNES_LEITOS
+  -- as descarta, porque o CNES carregado comeca em 2025. O projeto trabalha
+  -- com as 17 competencias de 202501 a 202605. Mantidas na lista para o caso
+  -- de o CNES de 2024 ser carregado depois.
   UNPIVOT (dias FOR competencia IN (
     m_202410 AS '202410', m_202411 AS '202411', m_202412 AS '202412',
     m_202501 AS '202501', m_202502 AS '202502', m_202503 AS '202503',
