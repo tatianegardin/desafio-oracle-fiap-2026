@@ -322,6 +322,10 @@ da causa e a decisão sobre a intervenção permanecem com a gestão da unidade.
    "Pequenos especializados" têm validação direcional pelo tipo de unidade. Só
    "Longa permanência" fica sem fonte independente discriminante, apoiado em
    coerência interna e leitura qualitativa.
+7. **Recorte do perfil clínico**: as views de diagnóstico cobrem apenas
+   hospitais com ocupação calculável. Estabelecimentos que faturam AIH mas
+   não declaram leito no CNES ficam fora — cerca de 12% das internações,
+   concentradas em procedimentos eletivos de curta permanência.
 
 ---
 

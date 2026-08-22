@@ -133,6 +133,10 @@ Comentários e annotations aplicados a cada execução.
 - Ocupação por zona (mai/26): Extremo Leste 80,7% · Centro 52,3%
 - Sazonalidade: Inverno +1,3 p.p. · Verão −1,0 p.p. frente à média do período
 - IPq-HCFMUSP com ~160%: leitos subdeclarados no CNES — achado conhecido, não corrigir
+- Perfil clínico cobre ~12% menos internações que a Prata: a `GLD_DIAGNOSTICOS`
+  faz join com a features, e 11 CNES têm AIH no SIH-RD sem leito cadastrado
+  no CNES. Afeta mais cirurgias eletivas — fimose cai de 7.111 para 3.718 em
+  crianças, invertendo a ordem do topo (asma passa a liderar)
 
 ### A criar
 Nada estrutural pendente. `PKG_TRANSFORM` (#17) foi descartado por decisão da
