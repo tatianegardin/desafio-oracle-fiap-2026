@@ -649,6 +649,8 @@ COMENTARIOS = [
     "COMMENT ON COLUMN gld_sazonalidade.nr_mes IS 'Mes da competencia, de 1 a 12'",
     "COMMENT ON COLUMN gld_sazonalidade.internacoes IS 'Total de internacoes da rede no mes'",
     "COMMENT ON COLUMN gld_sazonalidade.criticos IS 'Hospitais com ocupacao acima de 85 por cento no mes'",
+    "COMMENT ON TABLE gld_diagnosticos IS 'Perfil de diagnosticos por faixa etaria. Cobre apenas hospitais presentes em GLD_FEATURES_HOSPITAL, ou seja, com leito cadastrado no CNES e permanencia no TabNet. Internacoes de estabelecimentos sem leito cadastrado ficam de fora, cerca de 12 por cento do total, concentradas em cirurgias eletivas de curta permanencia'",
+    "COMMENT ON TABLE gld_perfil_clinico IS 'Perfil clinico por hospital, mes, faixa etaria e capitulo CID. Mesmo recorte da GLD_DIAGNOSTICOS: apenas hospitais com ocupacao calculavel'",
 ]
 
 VALIDACOES = [
