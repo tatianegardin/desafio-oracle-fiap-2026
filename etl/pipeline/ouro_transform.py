@@ -622,6 +622,13 @@ COMENTARIOS = [
     "COMMENT ON COLUMN gld_fatores_hospital.recomendacao IS 'Direcao de investigacao sugerida ao gestor, nao e prescricao clinica'",
     "COMMENT ON COLUMN gld_fatores_hospital.pca_x IS 'Coordenada horizontal da projecao bidimensional usada no grafico de dispersao'",
     "COMMENT ON COLUMN gld_fatores_hospital.pca_y IS 'Coordenada vertical da projecao bidimensional usada no grafico de dispersao'",
+    "COMMENT ON COLUMN gld_diagnosticos.internacoes IS 'Quantidade de internacoes com este diagnostico. Use esta coluna para responder qual diagnostico mais interna ou qual o maior motivo de internacao'",
+    "COMMENT ON COLUMN gld_diagnosticos.faixa_etaria IS 'Faixa etaria do paciente: Menor de 1 ano, Crianca (1 a 11), Adolescente (12 a 17), Adulto (18 a 59) ou Idoso (60 ou mais)'",
+    "COMMENT ON COLUMN gld_diagnosticos.ds_capitulo IS 'Capitulo da CID-10, agrupamento amplo do diagnostico'",
+    "COMMENT ON COLUMN gld_diagnosticos.perm_media IS 'Permanencia media em dias das internacoes com este diagnostico'",
+    "COMMENT ON COLUMN gld_diagnosticos.obitos IS 'Quantidade de obitos entre as internacoes com este diagnostico'",
+    "COMMENT ON COLUMN gld_diagnosticos.tx_mortalidade IS 'Percentual de obitos sobre as internacoes com este diagnostico'",
+    "COMMENT ON COLUMN gld_diagnosticos.idade_media IS 'Idade media em anos dos pacientes internados com este diagnostico'",
 ]
 
 VALIDACOES = [
