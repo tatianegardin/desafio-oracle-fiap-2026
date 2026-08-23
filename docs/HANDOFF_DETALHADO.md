@@ -191,6 +191,20 @@ documentação de uma coluna melhora o SQL gerado, sem tocar no código.
 Cronologia completa do diagnóstico, as armadilhas da integração no APEX e o que
 declarar na apresentação: **`docs/bug-selectai-ora20404.md`**.
 
+**Armadilha: recriar view apaga os comentários.** O `CREATE OR REPLACE VIEW`
+descarta todos os `COMMENT ON COLUMN` do objeto. Como o prompt do
+`PKG_ASK_AI` é montado a partir deles, a IA para de responder
+silenciosamente — a view funciona, as telas funcionam, mas o M3 passa a
+devolver "pergunta fora do escopo" porque não enxerga mais o esquema.
+
+Por isso o `ouro_transform.py` aplica os comentários depois de criar as
+views, na lista `COMENTARIOS`. Quem recriar uma view manualmente precisa
+reaplicar os comentários dela.
+
+**Comentários são instrução, não só descrição.** O texto vai direto para o
+prompt do modelo. Descrição melhor gera SQL melhor — mas texto que soe como
+aviso ou ressalva pode alterar o comportamento. Manter objetivo e factual.
+
 ## 8. Frentes de trabalho
 
 **APEX (E4) — concluído.** Seis páginas no workspace `WKSP_HOSPCHECK`, app 100,
