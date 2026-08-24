@@ -83,7 +83,7 @@ analytics/
   kmeans.py       modelo de agrupamento → GLD_CLUSTER
   METODOLOGIA.md  features, escolha do K, método do fator dominante
 dados/            arquivos originais (sihsus não versionado, ver LEIA-ME)
-docs/             handoff do projeto e registro de decisões
+docs/             handoff, diagrama ER e registro de decisões
 ```
 
 ## Como reproduzir
@@ -156,7 +156,7 @@ sql/ia/02_ask_ai.sql         (pacote PKG_ASK_AI — preencher a chave em CFG_AI)
 - [x] M2 — K-Means com 4 perfis + fatores de pressão
 - [x] M3 — Perguntas em linguagem natural gerando SQL
 - [x] Mapa dos hospitais e análise regional por zona
-- [ ] Bateria de validação do M3 e diagrama ER
+- [x] Bateria de validação do M3 (40 perguntas, 34 acertos) e diagrama ER
 
 ## Licença
 

@@ -230,8 +230,11 @@ conteúdo) → permanência média mais robusta · competências RDSP de abr–d
 ## 9. Pendências
 
 **Técnicas**
-- Bateria de 20 perguntas do M3 (#32) — validar e contar acertos usando `LOG_ASK_AI`
-- Diagrama ER (#6) — Data Modeler sobre as tabelas; as FKs já estão declaradas
+- `kmeans.py` faz `DROP TABLE gld_cluster` antes de gravar, o que destrói grants,
+  sinônimos e comentários da tabela. Enquanto o script não for ajustado, quem
+  rodar o modelo precisa reaplicar `sql/setup/02_grants.sql` e os `COMMENT ON`
+  da GLD_CLUSTER — senão as Telas de Benchmarking e Fatores de Pressão param,
+  junto com as perguntas do M3 sobre perfil assistencial
 - `sql/testes/` cobre só a Prata; não há arquivo de conferência da Ouro
 - Instituto Suel Abujamra tem 2 meses de dado em 17 e não é marcado como residual
   (a régua olha só `total_aihs`, não `meses_com_dado`) — limitação conhecida
