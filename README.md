@@ -131,8 +131,12 @@ sql/setup/03_acl_llm.sql     (ACL de rede + credencial do provedor de IA)
 sql/ia/02_ask_ai.sql         (pacote PKG_ASK_AI — preencher a chave em CFG_AI)
 ```
 
-**Execuções parciais:** `--api` · `--prata` · `--ouro` · `--modelo` · `--sem-modelo`.
-As views Ouro usam `CREATE OR REPLACE`, então rodar de novo é seguro e idempotente.
+> **O passo 4 precisa rodar sempre depois do pipeline, não só na primeira vez.**
+> `GRANT` não é herdado: objeto recriado perde os acessos anteriores. O
+> `kmeans.py` faz `DROP TABLE gld_cluster` antes de gravar, então a tabela nasce
+> sem grant e sem sinônimo a cada execução do modelo — e as telas de Benchmarking
+> e Fatores de Pressão param com `ORA-00942`, junto com as perguntas do M3 sobre
+> perfil assistencial.
 
 ## Decisões documentadas
 
