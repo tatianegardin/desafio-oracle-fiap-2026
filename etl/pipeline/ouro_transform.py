@@ -329,6 +329,7 @@ SELECT i.competencia,
          WHEN i.idade_anos < 18  THEN 'Adolescente (12 a 17)'
          WHEN i.idade_anos < 60  THEN 'Adulto (18 a 59)'
          WHEN i.idade_anos IS NOT NULL THEN 'Idoso (60 ou mais)'
+                  ELSE 'Idade nao informada'
        END                                        AS faixa_etaria,
        d.nr_capitulo,
        NVL(d.ds_capitulo, 'Capitulo nao identificado') AS ds_capitulo,
@@ -352,6 +353,7 @@ SELECT i.competencia,
             WHEN i.idade_anos < 18  THEN 'Adolescente (12 a 17)'
             WHEN i.idade_anos < 60  THEN 'Adulto (18 a 59)'
             WHEN i.idade_anos IS NOT NULL THEN 'Idoso (60 ou mais)'
+            ELSE 'Idade nao informada'
           END,
           d.nr_capitulo, d.ds_capitulo"""),
 
@@ -363,6 +365,7 @@ SELECT CASE
          WHEN i.idade_anos < 18  THEN 'Adolescente (12 a 17)'
          WHEN i.idade_anos < 60  THEN 'Adulto (18 a 59)'
          WHEN i.idade_anos IS NOT NULL THEN 'Idoso (60 ou mais)'
+         ELSE 'Idade nao informada'
        END                                        AS faixa_etaria,
        i.cid_principal                            AS co_cid,
        NVL(d.ds_cid_abrev, 'Nao identificado')    AS ds_cid,
@@ -385,6 +388,7 @@ SELECT CASE
             WHEN i.idade_anos < 18  THEN 'Adolescente (12 a 17)'
             WHEN i.idade_anos < 60  THEN 'Adulto (18 a 59)'
             WHEN i.idade_anos IS NOT NULL THEN 'Idoso (60 ou mais)'
+            ELSE 'Idade nao informada'
           END,
           i.cid_principal, d.ds_cid_abrev, d.ds_capitulo"""),
 
@@ -529,7 +533,7 @@ COMENTARIOS = [
     "COMMENT ON COLUMN gld_regional.ocupacao_regiao IS 'Ocupacao ponderada dos hospitais da regiao: soma de paciente-dia dividida pela soma de leito-dia'",
     "COMMENT ON COLUMN gld_regional.hospitais IS 'Quantidade de hospitais ativos na regiao naquela competencia'",
     "COMMENT ON TABLE gld_perfil_clinico IS 'Perfil epidemiologico das internacoes: quantas internacoes, permanencia e mortalidade por hospital, competencia, faixa etaria e capitulo da CID-10. Grao: hospital x mes x faixa etaria x capitulo'",
-    "COMMENT ON COLUMN gld_perfil_clinico.faixa_etaria IS 'Faixa etaria do paciente: Menor de 1 ano, Crianca (1 a 11), Adolescente (12 a 17), Adulto (18 a 59) ou Idoso (60 ou mais)'",
+    "COMMENT ON COLUMN gld_diagnosticos.faixa_etaria IS 'Faixa etaria do paciente: Menor de 1 ano, Crianca (1 a 11), Adolescente (12 a 17), Adulto (18 a 59), Idoso (60 ou mais) ou Idade nao informada'",
     "COMMENT ON COLUMN gld_perfil_clinico.ds_capitulo IS 'Capitulo da CID-10, agrupa diagnosticos por sistema ou natureza da doenca. Ex.: doencas do aparelho respiratorio, neoplasias, gravidez e parto'",
     "COMMENT ON COLUMN gld_perfil_clinico.internacoes IS 'Quantidade de internacoes no recorte'",
     "COMMENT ON COLUMN gld_perfil_clinico.paciente_dia IS 'Soma dos dias de permanencia no recorte'",
@@ -623,7 +627,7 @@ COMENTARIOS = [
     "COMMENT ON COLUMN gld_fatores_hospital.pca_x IS 'Coordenada horizontal da projecao bidimensional usada no grafico de dispersao'",
     "COMMENT ON COLUMN gld_fatores_hospital.pca_y IS 'Coordenada vertical da projecao bidimensional usada no grafico de dispersao'",
     "COMMENT ON COLUMN gld_diagnosticos.internacoes IS 'Quantidade de internacoes com este diagnostico. Use esta coluna para responder qual diagnostico mais interna ou qual o maior motivo de internacao'",
-    "COMMENT ON COLUMN gld_diagnosticos.faixa_etaria IS 'Faixa etaria do paciente: Menor de 1 ano, Crianca (1 a 11), Adolescente (12 a 17), Adulto (18 a 59) ou Idoso (60 ou mais)'",
+    "COMMENT ON COLUMN gld_perfil_clinico.faixa_etaria IS 'Faixa etaria do paciente: Menor de 1 ano, Crianca (1 a 11), Adolescente (12 a 17), Adulto (18 a 59), Idoso (60 ou mais) ou Idade nao informada'",
     "COMMENT ON COLUMN gld_diagnosticos.ds_capitulo IS 'Capitulo da CID-10, agrupamento amplo do diagnostico'",
     "COMMENT ON COLUMN gld_diagnosticos.perm_media IS 'Permanencia media em dias das internacoes com este diagnostico'",
     "COMMENT ON COLUMN gld_diagnosticos.obitos IS 'Quantidade de obitos entre as internacoes com este diagnostico'",
@@ -651,6 +655,10 @@ COMENTARIOS = [
     "COMMENT ON COLUMN gld_sazonalidade.criticos IS 'Hospitais com ocupacao acima de 85 por cento no mes'",
     "COMMENT ON TABLE gld_diagnosticos IS 'Perfil de diagnosticos por faixa etaria. Cobre apenas hospitais presentes em GLD_FEATURES_HOSPITAL, ou seja, com leito cadastrado no CNES e permanencia no TabNet. Internacoes de estabelecimentos sem leito cadastrado ficam de fora, cerca de 12 por cento do total, concentradas em cirurgias eletivas de curta permanencia'",
     "COMMENT ON TABLE gld_perfil_clinico IS 'Perfil clinico por hospital, mes, faixa etaria e capitulo CID. Mesmo recorte da GLD_DIAGNOSTICOS: apenas hospitais com ocupacao calculavel'",
+    "COMMENT ON COLUMN gld_regional.ocupacao_regiao IS 'Taxa de ocupacao do BAIRRO, nao da zona. O grao desta view e competencia x zona x bairro. Para comparar zonas, agrupe por zona e calcule SUM(paciente_dia) dividido por SUM(leito_dia), nunca use MAX ou ORDER BY direto nesta coluna'",
+    "COMMENT ON COLUMN gld_fatores_hospital.dif_taxa_pp IS 'Diferenca em pontos percentuais entre a ocupacao do hospital e a media do seu cluster. Use esta coluna para responder qual hospital esta mais acima ou abaixo da media do grupo'",
+    "COMMENT ON COLUMN gld_fatores_hospital.z_fator IS 'Z-score do fator dominante, ou seja, quantos desvios-padrao o hospital esta acima dos pares NAQUELA dimensao especifica. Nao mede ocupacao, para isso use dif_taxa_pp'",
+    "COMMENT ON COLUMN gld_perfil_clinico.ds_capitulo IS 'Nome do capitulo da CID-10, no formato Capitulo X - Doencas do aparelho respiratorio. O texto tem ACENTOS. Para filtrar por tema, use a palavra com acento no LIKE. Capitulos disponiveis incluem: aparelho respiratorio, aparelho circulatorio, aparelho digestivo, aparelho geniturinario, neoplasias, gravidez parto e puerperio, transtornos mentais, doencas infecciosas e parasitarias'",
 ]
 
 VALIDACOES = [
