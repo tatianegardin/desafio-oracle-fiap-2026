@@ -104,9 +104,14 @@ Carregado: TabNet out/24–mai/26 · Leitos 2025 + jan–jun/26 · RDSP jan–ma
 | `SLV_ESTABELECIMENTO` | 1 por estabelecimento | **parse do JSON da API**: lat/long, centro cirúrgico/obstétrico/neonatal, atividade de ensino, turno |
 | `DIM_CID` | 1 por código | código → descrição → capítulo |
 
-Chaves declaradas: 5 PKs e 4 FKs (`RELY DISABLE NOVALIDATE`) — importam para o
-Select AI (relacionamentos são metadados que o modelo usa) e para o diagrama ER.
-Comentários e annotations aplicados a cada execução.
+Chaves declaradas em `prata_transform.py`: 5 PKs (`RELY`, enabled e validated) e
+4 FKs (`RELY DISABLE NOVALIDATE`, ou seja, metadado que o banco não verifica).
+Importam para o Select AI (relacionamentos são metadados que o modelo usa) e
+para o diagrama ER. Comentários e annotations aplicados a cada execução.
+
+`SLV_ESTABELECIMENTO` continua sem FK: seu vínculo natural seria com
+`SLV_CNES_LEITOS`, cuja PK é composta (`cnes`, `competencia`), e `co_cnes`
+sozinho não referencia isso. Por isso ela aparece isolada no diagrama ER.
 
 ### Ouro — views (criadas por `etl/pipeline/ouro_transform.py`)
 | Objeto | Grão | Serve a |
