@@ -104,9 +104,34 @@ Carregado: TabNet out/24–mai/26 · Leitos 2025 + jan–jun/26 · RDSP jan–ma
 | `SLV_ESTABELECIMENTO` | 1 por estabelecimento | **parse do JSON da API**: lat/long, centro cirúrgico/obstétrico/neonatal, atividade de ensino, turno |
 | `DIM_CID` | 1 por código | código → descrição → capítulo |
 
-Chaves declaradas: 5 PKs e 4 FKs (`RELY DISABLE NOVALIDATE`) — importam para o
-Select AI (relacionamentos são metadados que o modelo usa) e para o diagrama ER.
-Comentários e annotations aplicados a cada execução.
+Chaves declaradas em `prata_transform.py`: 5 PKs (`RELY`, enabled e validated) e
+4 FKs (`RELY DISABLE NOVALIDATE`, ou seja, metadado que o banco não verifica).
+Importam para o Select AI (relacionamentos são metadados que o modelo usa) e
+para o diagrama ER. Comentários e annotations aplicados a cada execução.
+
+`SLV_ESTABELECIMENTO` aparece isolada no diagrama ER por **não ter FK
+declarada**, não por falta de PK — chave primária desenha a entidade, chave
+estrangeira desenha a linha entre entidades.
+
+A FK natural seria `SLV_CNES_LEITOS (cnes)` referenciando
+`SLV_ESTABELECIMENTO (co_cnes)`: o estabelecimento é o pai (1 linha por
+unidade), o registro de leitos é o filho (estabelecimento × mês). Ela só é
+declarável porque `PK_SLV_ESTABELECIMENTO` existe. Na direção inversa é
+impossível, porque a PK de `SLV_CNES_LEITOS` é composta (`cnes`,
+`competencia`).
+
+Foi deixada de fora de propósito. O `bronze_api_cnes.py` só consulta a API para
+CNES com `leitos_sus > 0`, enquanto `SLV_CNES_LEITOS` não aplica esse filtro:
+medido em 26/08/2026, **142 CNES de `SLV_CNES_LEITOS` não têm par em
+`SLV_ESTABELECIMENTO`** — e **nenhum deles tem leito SUS**, ou seja, a lacuna é
+exatamente o filtro da ingestão, não falha de carga. Como todas as FKs do
+projeto são `RELY`, o otimizador confia nelas **sem verificar**: declarar esta
+seria afirmar algo falso em 142 casos, e uma FK falsa pode produzir resultado
+errado por eliminação de join. Para torná-la verdadeira bastaria remover o
+filtro em `bronze_api_cnes.py` e recarregar — decisão adiada por não trazer
+ganho ao painel.
+
+
 
 ### Ouro — views (criadas por `etl/pipeline/ouro_transform.py`)
 | Objeto | Grão | Serve a |

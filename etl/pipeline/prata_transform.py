@@ -215,6 +215,15 @@ CHAVES = [
     "ALTER TABLE slv_sih_diasperm ADD CONSTRAINT pk_slv_sih_diasperm PRIMARY KEY (co_cnes, competencia) RELY",
     "ALTER TABLE slv_ocupacao ADD CONSTRAINT pk_slv_ocupacao PRIMARY KEY (co_cnes, competencia) RELY",
 
+    # Esta PK existia no banco (DISABLED NOT VALIDATED) sem estar neste
+    # script: alguem a criou manualmente. Como o CTAS acima e precedido de
+    # DROP TABLE PURGE, ela sumiria na proxima execucao do pipeline e o
+    # banco divergiria da documentacao. Declarada aqui em 26/08/2026.
+    # Ao contrario das demais, esta e validada de fato: a tabela tem ~130
+    # linhas e a unicidade ja vem garantida da Bronze (brz_cnes_api_raw
+    # tem co_cnes como PK), entao validar nao custa nada.
+    "ALTER TABLE slv_estabelecimento ADD CONSTRAINT pk_slv_estabelecimento PRIMARY KEY (co_cnes) RELY",
+
     # --- chaves estrangeiras ---
     "ALTER TABLE slv_ocupacao ADD CONSTRAINT fk_ocup_leitos "
     "FOREIGN KEY (co_cnes, competencia) "
