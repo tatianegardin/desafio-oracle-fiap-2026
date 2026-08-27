@@ -33,7 +33,7 @@ prompt APPLICATION 100 - HOSPCHECK SP
 -- Application Export:
 --   Application:     100
 --   Name:            HOSPCHECK SP
---   Date and Time:   23:18 Wednesday August 26, 2026
+--   Date and Time:   00:32 Thursday August 27, 2026
 --   Exported By:     MARCO
 --   Flashback:       0
 --   Export Type:     Application Export
@@ -105,11 +105,11 @@ wwv_imp_workspace.create_flow(
 ,p_modernization_available=>'Y'
 ,p_substitution_string_01=>'APP_NAME'
 ,p_substitution_value_01=>'HOSPCHECK SP'
-,p_last_updated_on=>wwv_flow_imp.dz('20260824225952Z')
+,p_last_updated_on=>wwv_flow_imp.dz('20260827003204Z')
 ,p_last_updated_by=>'MARCO'
 ,p_file_prefix=>nvl(wwv_flow_application_install.get_static_app_file_prefix,'')
 ,p_files_version=>29
-,p_version_scn=>'47040973269373'
+,p_version_scn=>'47041170585269'
 ,p_print_server_type=>'NATIVE'
 ,p_file_storage=>'DB'
 ,p_is_pwa=>'Y'
@@ -7139,7 +7139,7 @@ wwv_flow_imp_page.create_page(
 ,p_page_template_options=>'#DEFAULT#'
 ,p_protection_level=>'C'
 ,p_page_component_map=>'13'
-,p_last_updated_on=>wwv_flow_imp.dz('20260818010332Z')
+,p_last_updated_on=>wwv_flow_imp.dz('20260827003204Z')
 ,p_last_updated_by=>'MARCO'
 );
 wwv_flow_imp_page.create_page_plug(
@@ -7164,10 +7164,11 @@ unistr('      Defini\00E7\00E3o padr\00E3o do Minist\00E9rio da Sa\00FAde'),
 '    </span>',
 '  </div>',
 '  <div style="border-left:4px solid #854F0B;padding:8px 14px;">',
-unistr('    <strong style="color:#854F0B;">Faixa saud\00E1vel</strong><br>'),
+unistr('       <strong style="color:#854F0B;">Faixa saud\00E1vel</strong><br>'),
 unistr('    75% a 85% (refer\00EAncia ANS)<br>'),
 '    <span style="color:#6B7280;font-size:.9rem;">',
-unistr('      Acima disso aumentam eventos adversos e infec\00E7\00E3o hospitalar'),
+unistr('      Acima disso aumentam eventos adversos e infec\00E7\00E3o hospitalar.'),
+unistr('      O painel sinaliza aten\00E7\00E3o a partir de 70% \2014 crit\00E9rio mais conservador.'),
 '    </span>',
 '  </div>',
 '  <div style="border-left:4px solid #5F5E5A;padding:8px 14px;">',
@@ -7182,7 +7183,7 @@ unistr('      Fontes: CNES (leitos) e SIH/TabNet (perman\00EAncia)'),
   'expand_shortcuts', 'N',
   'output_as', 'HTML')).to_clob
 ,p_created_on=>wwv_flow_imp.dz('20260810234719Z')
-,p_updated_on=>wwv_flow_imp.dz('20260810234719Z')
+,p_updated_on=>wwv_flow_imp.dz('20260827003204Z')
 ,p_created_by=>'MARCO'
 ,p_updated_by=>'MARCO'
 );
@@ -8035,7 +8036,7 @@ wwv_flow_imp_page.create_page(
 ,p_protection_level=>'C'
 ,p_page_component_map=>'03'
 ,p_created_on=>wwv_flow_imp.dz('20260812220236Z')
-,p_last_updated_on=>wwv_flow_imp.dz('20260818010906Z')
+,p_last_updated_on=>wwv_flow_imp.dz('20260827003032Z')
 ,p_created_by=>'MARCO'
 ,p_last_updated_by=>'MARCO'
 );
@@ -8076,9 +8077,9 @@ wwv_flow_imp_page.create_page_plug(
 '  <div>',
 unistr('    <strong style="color:#1F2937;">O que s\00E3o os grupos</strong>'),
 '    <p style="color:#4B5563;line-height:1.6;margin:6px 0 0;">',
-'      O K-Means separou os 79 hospitais ativos em 4 perfis, a partir de porte,',
-unistr('      volume, perman\00EAncia e complexidade \2014 sem interfer\00EAncia humana na defini\00E7\00E3o'),
-unistr('      dos grupos. Gerais / urg\00EAncia re\00FAne 49 unidades; Pequenos especializados, 14;'),
+'            O K-Means separou os 78 hospitais ativos em 4 perfis, a partir de porte,',
+unistr('      perman\00EAncia, urg\00EAncia e complexidade \2014 sem interfer\00EAncia humana na defini\00E7\00E3o'),
+unistr('      dos grupos. Gerais / urg\00EAncia re\00FAne 48 unidades; Pequenos especializados, 14;'),
 unistr('      Longa perman\00EAncia e Grandes / ensino, 8 cada.'),
 '    </p>',
 '  </div>',
@@ -8116,7 +8117,7 @@ unistr('      <strong>Retaguarda</strong> \2014 leitos de menor complexidade que
   'expand_shortcuts', 'N',
   'output_as', 'HTML')).to_clob
 ,p_created_on=>wwv_flow_imp.dz('20260812225825Z')
-,p_updated_on=>wwv_flow_imp.dz('20260812235120Z')
+,p_updated_on=>wwv_flow_imp.dz('20260827003032Z')
 ,p_created_by=>'MARCO'
 ,p_updated_by=>'MARCO'
 );
